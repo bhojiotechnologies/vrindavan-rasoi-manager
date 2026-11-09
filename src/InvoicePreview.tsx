@@ -231,6 +231,7 @@ export default function InvoicePreview({
             <strong>ग्राहक:</strong> {sale.customerName}
           </div>
 
+          {sale.customerMobile && <div><strong>मोबाइल:</strong> {sale.customerMobile}</div>}
           <div>
             <strong>दिनांक:</strong> {date}
           </div>
