@@ -13,6 +13,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import ItemMaster from "./ItemMaster";
 import SalesBilling from "./SalesBilling";
+import CustomerManagement from "./CustomerManagement";
 
 type UserProfile = {
   role?: string;
@@ -371,14 +372,13 @@ function App() {
             </section>
           ) : selectedModule === "Sales & Billing" ? (
             <section style={{ marginTop: 20 }}>
-              <button
-                className="owner-back"
-                type="button"
-                onClick={() => setSelectedModule("")}
-              >
-                ← Dashboard पर वापस जाएँ
-              </button>
+              <button className="owner-back" type="button" onClick={() => setSelectedModule("")}>← Dashboard पर वापस जाएँ</button>
               <SalesBilling role="owner" />
+            </section>
+          ) : selectedModule === "Customers" ? (
+            <section style={{ marginTop: 20 }}>
+              <button className="owner-back" type="button" onClick={() => setSelectedModule("")}>← Dashboard पर वापस जाएँ</button>
+              <CustomerManagement role="owner" />
             </section>
           ) : (
             <>
@@ -414,7 +414,8 @@ function App() {
                     onClick={() => {
                       if (
                         item.title === "Item Master" ||
-                        item.title === "Sales & Billing"
+                        item.title === "Sales & Billing" ||
+                        item.title === "Customers"
                       ) {
                         setSelectedModule(item.title);
                       }
