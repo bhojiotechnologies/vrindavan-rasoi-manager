@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -11,6 +12,7 @@ import type { User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import ItemMaster from "./ItemMaster";
+import SalesBilling from "./SalesBilling";
 
 type UserProfile = {
   role?: string;
@@ -365,8 +367,18 @@ function App() {
               >
                 ← Dashboard पर वापस जाएँ
               </button>
-
               <ItemMaster role="owner" />
+            </section>
+          ) : selectedModule === "Sales & Billing" ? (
+            <section style={{ marginTop: 20 }}>
+              <button
+                className="owner-back"
+                type="button"
+                onClick={() => setSelectedModule("")}
+              >
+                ← Dashboard पर वापस जाएँ
+              </button>
+              <SalesBilling role="owner" />
             </section>
           ) : (
             <>
@@ -400,8 +412,11 @@ function App() {
                     key={item.title}
                     type="button"
                     onClick={() => {
-                      if (item.title === "Item Master") {
-                        setSelectedModule("Item Master");
+                      if (
+                        item.title === "Item Master" ||
+                        item.title === "Sales & Billing"
+                      ) {
+                        setSelectedModule(item.title);
                       }
                     }}
                     aria-label={`${item.title} खोलें`}
@@ -512,3 +527,4 @@ function App() {
 }
 
 export default App;
+              
