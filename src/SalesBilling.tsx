@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+
 import {
   getAllItems,
   type ItemData,
 } from "./itemService";
+
 import {
   createSaleDraft,
   type SaleDraft,
   type SaleDraftResult,
 } from "./saleService";
+
 import InvoicePreview from "./InvoicePreview";
 
 interface SalesBillingProps {
@@ -41,7 +45,6 @@ export default function SalesBilling({ role }: SalesBillingProps) {
   const [advanceUsed, setAdvanceUsed] = useState("0");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [previewSale, setPreviewSale] = useState<SaleDraft | null>(null);
   const [previewResult, setPreviewResult] =
     useState<SaleDraftResult | null>(null);
@@ -53,11 +56,14 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       try {
         setLoading(true);
         setError("");
+
         const data = await getAllItems();
         setItems(data.filter((item) => item.active));
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Items लोड नहीं हो सके।"
+          err instanceof Error
+            ? err.message
+            : "Items लोड नहीं हो सके।"
         );
       } finally {
         setLoading(false);
@@ -76,32 +82,24 @@ export default function SalesBilling({ role }: SalesBillingProps) {
     [cart]
   );
 
-  const discountValue = Number(discount) || 0;
+  const discountValue = Number(discount);
   const discountLimit = isOwner ? subtotal : subtotal * 0.05;
 
-  const validDiscount =
-    Number.isFinite(discountValue) &&
-    discountValue >= 0 &&
-    discountValue <= discountLimit;
+  const finalTotal = Math.max(
+    0,
+    subtotal - (Number.isFinite(discountValue) ? discountValue : 0)
+  );
 
-  const finalTotal = Math.max(0, subtotal - discountValue);
+  const cash = Number(cashAmount);
+  const upi = Number(upiAmount);
+  const advance = Number(advanceUsed);
 
-  const cash = Number(cashAmount) || 0;
-  const upi = Number(upiAmount) || 0;
-  const advance = Number(advanceUsed) || 0;
-
-  const validPayments =
-    Number.isFinite(cash) &&
-    Number.isFinite(upi) &&
-    Number.isFinite(advance) &&
-    cash >= 0 &&
-    upi >= 0 &&
-    advance >= 0 &&
-    Math.abs(cash + upi + advance - finalTotal) < 0.01;
+  const safeCash = Number.isFinite(cash) ? cash : 0;
+  const safeUpi = Number.isFinite(upi) ? upi : 0;
+  const safeAdvance = Number.isFinite(advance) ? advance : 0;
 
   function addToCart() {
     setError("");
-    setMessage("");
 
     const item = items.find((entry) => entry.id === selectedItem);
     const qty = Number(quantity);
@@ -175,17 +173,46 @@ export default function SalesBilling({ role }: SalesBillingProps) {
     setUpiAmount("");
     setAdvanceUsed("0");
     setError("");
-    setMessage("");
     setPreviewSale(null);
     setPreviewResult(null);
   }
 
   function openInvoicePreview() {
     setError("");
-    setMessage("");
 
     if (!customerName.trim()) {
       setError("कृपया ग्राहक का नाम दर्ज करें।");
+      return;
+    }
+
+    if (cart.length === 0) {
+      setError("बिल में कम से कम एक Item जोड़ें।");
+      return;
+    }
+
+    if (!Number.isFinite(discountValue) || discountValue < 0) {
+      setError("Discount की राशि सही दर्ज करें।");
+      return;
+    }
+
+    if (discountValue > discountLimit) {
+      setError(
+        isOwner
+          ? "Discount कुल राशि से अधिक नहीं हो सकता।"
+          : "Staff अधिकतम 5% Discount दे सकता है।"
+      );
+      return;
+    }
+
+    if (
+      !Number.isFinite(cash) ||
+      !Number.isFinite(upi) ||
+      !Number.isFinite(advance) ||
+      cash < 0 ||
+      upi < 0 ||
+      advance < 0
+    ) {
+      setError("भुगतान की राशि सही दर्ज करें।");
       return;
     }
 
@@ -206,11 +233,14 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
     try {
       const result = createSaleDraft(draft, role);
+
       setPreviewSale(draft);
       setPreviewResult(result);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "बिल की जाँच नहीं हो सकी।"
+        err instanceof Error
+          ? err.message
+          : "बिल की जाँच नहीं हो सकी।"
       );
     }
   }
@@ -235,6 +265,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
           <h2 style={styles.heading}>Sales & Billing</h2>
           <p style={styles.subtitle}>वृंदावन रसोई</p>
         </div>
+
         <span style={styles.role}>
           {isOwner ? "OWNER" : "STAFF"}
         </span>
@@ -244,6 +275,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         <h3 style={styles.title}>ग्राहक की जानकारी</h3>
 
         <label style={styles.label}>ग्राहक का नाम</label>
+
         <input
           style={styles.input}
           type="text"
@@ -265,12 +297,14 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         ) : (
           <>
             <label style={styles.label}>Item</label>
+
             <select
               style={styles.input}
               value={selectedItem}
               onChange={(event) => setSelectedItem(event.target.value)}
             >
               <option value="">Item चुनें</option>
+
               {items.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name} — {money(item.rate)} / {item.unit}
@@ -279,6 +313,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
             </select>
 
             <label style={styles.label}>Quantity</label>
+
             <input
               style={styles.input}
               type="number"
@@ -288,7 +323,10 @@ export default function SalesBilling({ role }: SalesBillingProps) {
               onChange={(event) => setQuantity(event.target.value)}
             />
 
-            <button style={styles.primaryButton} onClick={addToCart}>
+            <button
+              style={styles.primaryButton}
+              onClick={addToCart}
+            >
               + बिल में जोड़ें
             </button>
           </>
@@ -306,9 +344,11 @@ export default function SalesBilling({ role }: SalesBillingProps) {
               <article key={item.itemId} style={styles.cartItem}>
                 <div style={{ flex: 1 }}>
                   <strong>{item.name}</strong>
+
                   <p style={styles.itemInfo}>
                     {money(item.rate)} × {item.quantity} {item.unit}
                   </p>
+
                   <strong>
                     {money(item.rate * item.quantity)}
                   </strong>
@@ -326,6 +366,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
                       changeQuantity(item.itemId, event.target.value)
                     }
                   />
+
                   <button
                     style={styles.removeButton}
                     onClick={() => removeItem(item.itemId)}
@@ -350,6 +391,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         <label style={styles.label}>
           Discount (₹) — {isOwner ? "Owner" : "Staff अधिकतम 5%"}
         </label>
+
         <input
           style={styles.input}
           type="number"
@@ -362,7 +404,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
         <div style={styles.summaryRow}>
           <span>Discount</span>
-          <strong>{money(discountValue)}</strong>
+          <strong>
+            {money(Number.isFinite(discountValue) ? discountValue : 0)}
+          </strong>
         </div>
 
         <div style={styles.totalRow}>
@@ -375,6 +419,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         <h3 style={styles.title}>भुगतान का विवरण</h3>
 
         <label style={styles.label}>Cash (₹)</label>
+
         <input
           style={styles.input}
           type="number"
@@ -386,6 +431,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         />
 
         <label style={styles.label}>UPI (₹)</label>
+
         <input
           style={styles.input}
           type="number"
@@ -396,7 +442,10 @@ export default function SalesBilling({ role }: SalesBillingProps) {
           placeholder="0"
         />
 
-        <label style={styles.label}>Customer Advance इस्तेमाल (₹)</label>
+        <label style={styles.label}>
+          Customer Advance इस्तेमाल (₹)
+        </label>
+
         <input
           style={styles.input}
           type="number"
@@ -408,13 +457,15 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
         <div style={styles.summaryRow}>
           <span>कुल भुगतान</span>
-          <strong>{money(cash + upi + advance)}</strong>
+          <strong>
+            {money(safeCash + safeUpi + safeAdvance)}
+          </strong>
         </div>
 
         <div style={styles.summaryRow}>
           <span>शेष राशि</span>
           <strong>
-            {money(finalTotal - cash - upi - advance)}
+            {money(finalTotal - safeCash - safeUpi - safeAdvance)}
           </strong>
         </div>
 
@@ -425,7 +476,6 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       </section>
 
       {error && <p style={styles.error}>{error}</p>}
-      {message && <p style={styles.success}>{message}</p>}
 
       <button
         style={styles.primaryButton}
@@ -442,28 +492,38 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       </button>
 
       <p style={styles.warning}>
-        यह अभी Draft Preview है। इससे वास्तविक Invoice जारी नहीं होगा,
-        Sale डेटाबेस में सेव नहीं होगी और Stock अपडेट नहीं होगा।
+        अभी यह केवल Billing Draft Preview है। वास्तविक Invoice Number,
+        Sale Save, Advance Adjustment और Stock Update सक्रिय नहीं हैं।
       </p>
     </main>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   page: {
     padding: 16,
     background: "#f8f3e8",
     minHeight: "100vh",
     color: "#49321f",
   },
+
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 18,
   },
-  heading: { margin: 0, fontSize: 24 },
-  subtitle: { margin: "5px 0", color: "#80694f" },
+
+  heading: {
+    margin: 0,
+    fontSize: 24,
+  },
+
+  subtitle: {
+    margin: "5px 0",
+    color: "#80694f",
+  },
+
   role: {
     background: "#ead9b5",
     padding: "8px 12px",
@@ -471,6 +531,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontSize: 12,
   },
+
   card: {
     background: "#fffdf8",
     padding: 16,
@@ -478,13 +539,19 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 15,
     border: "1px solid #e5d6b8",
   },
-  title: { marginTop: 0, color: "#67451f" },
+
+  title: {
+    marginTop: 0,
+    color: "#67451f",
+  },
+
   label: {
     display: "block",
     marginTop: 13,
     marginBottom: 6,
     fontWeight: 600,
   },
+
   input: {
     width: "100%",
     boxSizing: "border-box",
@@ -494,6 +561,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#fff",
     fontSize: 16,
   },
+
   primaryButton: {
     width: "100%",
     marginTop: 15,
@@ -506,6 +574,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 15,
     cursor: "pointer",
   },
+
   resetButton: {
     width: "100%",
     marginTop: 10,
@@ -515,8 +584,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 9,
     padding: 12,
     fontWeight: 600,
+    cursor: "pointer",
   },
-  list: { display: "grid", gap: 10 },
+
+  list: {
+    display: "grid",
+    gap: 10,
+  },
+
   cartItem: {
     display: "flex",
     justifyContent: "space-between",
@@ -525,34 +600,48 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 0",
     borderBottom: "1px solid #eadfc9",
   },
-  itemInfo: { margin: "5px 0", color: "#80694f", fontSize: 13 },
+
+  itemInfo: {
+    margin: "5px 0",
+    color: "#80694f",
+    fontSize: 13,
+  },
+
   quantityBox: {
     display: "flex",
     flexDirection: "column",
     gap: 7,
     width: 85,
   },
+
   quantityInput: {
     width: "100%",
+    boxSizing: "border-box",
     padding: 8,
     border: "1px solid #d8c6a5",
     borderRadius: 7,
   },
+
   removeButton: {
     background: "#f4e5df",
     color: "#963d2d",
     border: 0,
     padding: 7,
     borderRadius: 7,
+    cursor: "pointer",
   },
+
   summaryRow: {
     display: "flex",
     justifyContent: "space-between",
+    gap: 10,
     padding: "9px 0",
   },
+
   totalRow: {
     display: "flex",
     justifyContent: "space-between",
+    gap: 10,
     borderTop: "1px solid #d8c6a5",
     marginTop: 10,
     paddingTop: 14,
@@ -560,6 +649,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: "#67451f",
   },
+
   note: {
     background: "#f2e8d5",
     padding: 11,
@@ -568,15 +658,20 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.6,
     color: "#70542f",
   },
-  empty: { color: "#80694f", lineHeight: 1.6 },
-  error: { color: "#b42318", fontWeight: 600 },
-  success: {
-    color: "#237447",
-    background: "#e7f4ea",
+
+  empty: {
+    color: "#80694f",
+    lineHeight: 1.6,
+  },
+
+  error: {
+    color: "#b42318",
+    background: "#fce8e6",
     padding: 12,
     borderRadius: 8,
     fontWeight: 600,
   },
+
   warning: {
     color: "#80694f",
     fontSize: 12,
@@ -584,4 +679,3 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 15,
   },
 };
-    
