@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import type { SaleDraft, SaleDraftResult } from "./saleService";
 
 interface InvoicePreviewProps {
@@ -24,10 +25,11 @@ export default function InvoicePreview({
     window.print();
   }
 
-  return (
+  return createPortal(
     <div className="invoice-page">
       <style>{`
         .invoice-page {
+          box-sizing: border-box;
           background: #f8f1e5;
           min-height: 100vh;
           padding: 16px;
@@ -36,6 +38,8 @@ export default function InvoicePreview({
         }
 
         .invoice-paper {
+          box-sizing: border-box;
+          width: 100%;
           max-width: 700px;
           margin: auto;
           padding: 24px;
@@ -142,30 +146,71 @@ export default function InvoicePreview({
         }
 
         @media print {
-          body {
-            background: white !important;
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
           }
 
-          .invoice-page {
-            background: white;
-            padding: 0;
-            min-height: auto;
+          html,
+          body {
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            overflow: visible !important;
+          }
+
+          body > *:not(.invoice-page) {
+            display: none !important;
+          }
+
+          body > .invoice-page {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: #49321f !important;
+            overflow: visible !important;
           }
 
           .invoice-paper {
-            border: 0;
-            border-radius: 0;
-            max-width: none;
-            padding: 10mm;
+            display: block !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 5mm !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: white !important;
           }
 
           .invoice-actions {
             display: none !important;
           }
 
-          @page {
-            size: A4;
-            margin: 10mm;
+          .invoice-header,
+          .invoice-totals,
+          .invoice-footer {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .invoice-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .invoice-table th {
+            background: #f1e4ca !important;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
           }
         }
       `}</style>
@@ -276,6 +321,7 @@ export default function InvoicePreview({
           वापस जाएँ
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
