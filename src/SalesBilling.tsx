@@ -1,717 +1,328 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import type { SaleDraft, SaleDraftResult } from "./saleService";
 
-import {
-  getAllItems,
-  type ItemData,
-} from "./itemService";
-
-import {
-  createSaleDraft,
-  type SaleDraft,
-  type SaleDraftResult,
-} from "./saleService";
-
-import InvoicePreview from "./InvoicePreview";
-import { getCustomers, getCustomerAdvanceTransactions, calculateAdvanceBalance, type CustomerRecord } from "./customerService";
-
-interface SalesBillingProps {
-  role: "owner" | "staff";
+interface InvoicePreviewProps {
+  sale: SaleDraft;
+  result: SaleDraftResult;
+  onClose: () => void;
 }
 
-interface CartItem {
-  itemId: string;
-  name: string;
-  unit: string;
-  rate: number;
-  quantity: number;
+function money(value: number): string {
+  return `₹${value.toFixed(2)}`;
 }
 
-const money = (amount: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 2,
-  }).format(amount);
+export default function InvoicePreview({
+  sale,
+  result,
+  onClose,
+}: InvoicePreviewProps) {
+  const date = new Date().toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
-export default function SalesBilling({ role }: SalesBillingProps) {
-  const [items, setItems] = useState<ItemData[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [selectedItem, setSelectedItem] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [customerMobile, setCustomerMobile] = useState("");
-  const [customerId, setCustomerId] = useState("");
-  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
-  const [availableAdvance, setAvailableAdvance] = useState(0);
-  const [quantity, setQuantity] = useState("1");
-  const [discount, setDiscount] = useState("0");
-  const [cashAmount, setCashAmount] = useState("");
-  const [upiAmount, setUpiAmount] = useState("");
-  const [advanceUsed, setAdvanceUsed] = useState("0");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [previewSale, setPreviewSale] = useState<SaleDraft | null>(null);
-  const [previewResult, setPreviewResult] =
-    useState<SaleDraftResult | null>(null);
-
-  const isOwner = role === "owner";
-
-  useEffect(() => {
-    async function loadItems() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const [data, customerData] = await Promise.all([getAllItems(), getCustomers()]);
-        setItems(data.filter((item) => item.active));
-        setCustomers(customerData);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Items लोड नहीं हो सके।"
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    void loadItems();
-  }, []);
-
-  const subtotal = useMemo(
-    () =>
-      cart.reduce(
-        (total, item) => total + item.rate * item.quantity,
-        0
-      ),
-    [cart]
-  );
-
-  const discountValue = Number(discount);
-  const discountLimit = isOwner ? subtotal : subtotal * 0.05;
-
-  const finalTotal = Math.max(
-    0,
-    subtotal - (Number.isFinite(discountValue) ? discountValue : 0)
-  );
-
-  const cash = Number(cashAmount);
-  const upi = Number(upiAmount);
-  const advance = Number(advanceUsed);
-
-  const safeCash = Number.isFinite(cash) ? cash : 0;
-  const safeUpi = Number.isFinite(upi) ? upi : 0;
-  const safeAdvance = Number.isFinite(advance) ? advance : 0;
-
-  function addToCart() {
-    setError("");
-
-    const item = items.find((entry) => entry.id === selectedItem);
-    const qty = Number(quantity);
-
-    if (!item) {
-      setError("कृपया पहले Item चुनें।");
-      return;
-    }
-
-    if (!Number.isFinite(qty) || qty <= 0) {
-      setError("Quantity शून्य से अधिक होनी चाहिए।");
-      return;
-    }
-
-    setCart((previous) => {
-      const existing = previous.find(
-        (entry) => entry.itemId === item.id
-      );
-
-      if (existing) {
-        return previous.map((entry) =>
-          entry.itemId === item.id
-            ? { ...entry, quantity: entry.quantity + qty }
-            : entry
-        );
-      }
-
-      return [
-        ...previous,
-        {
-          itemId: item.id,
-          name: item.name,
-          unit: item.unit,
-          rate: item.rate,
-          quantity: qty,
-        },
-      ];
-    });
-
-    setSelectedItem("");
-    setQuantity("1");
+  function printInvoice() {
+    window.print();
   }
 
-  function changeQuantity(itemId: string, value: string) {
-    const qty = Number(value);
+  return createPortal(
+    <div className="invoice-page">
+      <style>{`
+        .invoice-page {
+          box-sizing: border-box;
+          background: #f8f1e5;
+          min-height: 100vh;
+          padding: 16px;
+          color: #49321f;
+          font-family: Arial, sans-serif;
+        }
 
-    if (!Number.isFinite(qty) || qty <= 0) {
-      return;
-    }
+        .invoice-paper {
+          box-sizing: border-box;
+          width: 100%;
+          max-width: 700px;
+          margin: auto;
+          padding: 24px;
+          background: #fffdf8;
+          border: 1px solid #d8bd83;
+          border-radius: 10px;
+        }
 
-    setCart((previous) =>
-      previous.map((item) =>
-        item.itemId === itemId
-          ? { ...item, quantity: qty }
-          : item
-      )
-    );
-  }
+        .invoice-header {
+          text-align: center;
+          border-bottom: 2px solid #b58a43;
+          padding-bottom: 14px;
+          margin-bottom: 16px;
+        }
 
-  function removeItem(itemId: string) {
-    setCart((previous) =>
-      previous.filter((item) => item.itemId !== itemId)
-    );
-  }
+        .invoice-header h1 {
+          margin: 0 0 6px;
+          color: #70451f;
+        }
 
-  function resetBill() {
-    setCart([]);
-    setCustomerName("");
-    setCustomerMobile("");
-    setCustomerId("");
-    setAvailableAdvance(0);
-    setDiscount("0");
-    setCashAmount("");
-    setUpiAmount("");
-    setAdvanceUsed("0");
-    setError("");
-    setPreviewSale(null);
-    setPreviewResult(null);
-  }
+        .invoice-header p {
+          margin: 4px 0;
+          font-size: 13px;
+        }
 
-  function openInvoicePreview() {
-    setError("");
+        .invoice-meta {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-bottom: 16px;
+          font-size: 14px;
+        }
 
-    if (!customerName.trim()) {
-      setError("कृपया ग्राहक का नाम दर्ज करें।");
-      return;
-    }
-    if (customerMobile && !/^\d{10}$/.test(customerMobile)) {
-      setError("ग्राहक का मोबाइल नंबर 10 अंकों का होना चाहिए।");
-      return;
-    }
-    if (customerId && safeAdvance > availableAdvance) {
-      setError("उपयोग किया गया एडवांस उपलब्ध बैलेंस से अधिक है।");
-      return;
-    }
-    if (safeAdvance > 0 && !customerId) {
-      setError("एडवांस उपयोग करने के लिए सेव ग्राहक चुनें।");
-      return;
-    }
+        .invoice-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
 
-    if (cart.length === 0) {
-      setError("बिल में कम से कम एक Item जोड़ें।");
-      return;
-    }
+        .invoice-table th,
+        .invoice-table td {
+          border: 1px solid #d8c9ad;
+          padding: 9px 6px;
+          text-align: left;
+        }
 
-    if (!Number.isFinite(discountValue) || discountValue < 0) {
-      setError("Discount की राशि सही दर्ज करें।");
-      return;
-    }
+        .invoice-table th {
+          background: #f1e4ca;
+        }
 
-    if (discountValue > discountLimit) {
-      setError(
-        isOwner
-          ? "Discount कुल राशि से अधिक नहीं हो सकता।"
-          : "Staff अधिकतम 5% Discount दे सकता है।"
-      );
-      return;
-    }
+        .invoice-table .number {
+          text-align: right;
+        }
 
-    if (
-      !Number.isFinite(cash) ||
-      !Number.isFinite(upi) ||
-      !Number.isFinite(advance) ||
-      cash < 0 ||
-      upi < 0 ||
-      advance < 0
-    ) {
-      setError("भुगतान की राशि सही दर्ज करें।");
-      return;
-    }
+        .invoice-totals {
+          max-width: 300px;
+          margin: 18px 0 0 auto;
+        }
 
-    const draft: SaleDraft = {
-      customerId: customerId || undefined,
-      customerName: customerName.trim(),
-      customerMobile: customerMobile.trim(),
-      items: cart.map((item) => ({
-        itemId: item.itemId,
-        name: item.name,
-        quantity: item.quantity,
-        rate: item.rate,
-      })),
-      discount: discountValue,
-      cashAmount: cash,
-      upiAmount: upi,
-      advanceAmount: advance,
-      paymentMode: safeCash > 0 && safeUpi > 0 ? "split" : safeUpi > 0 ? "upi" : safeAdvance > 0 && safeCash === 0 ? "advance" : "cash",
-    };
+        .invoice-total-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 6px 0;
+          border-bottom: 1px solid #eadfc9;
+        }
 
-    try {
-      const result = createSaleDraft(draft, role);
+        .invoice-grand-total {
+          font-size: 19px;
+          font-weight: bold;
+          color: #70451f;
+        }
 
-      setPreviewSale(draft);
-      setPreviewResult(result);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "बिल की जाँच नहीं हो सकी।"
-      );
-    }
-  }
+        .invoice-footer {
+          text-align: center;
+          border-top: 1px solid #d8bd83;
+          margin-top: 24px;
+          padding-top: 14px;
+          font-size: 13px;
+        }
 
-  if (previewSale && previewResult) {
-    return (
-      <InvoicePreview
-        sale={previewSale}
-        result={previewResult}
-        onClose={() => {
-          setPreviewSale(null);
-          setPreviewResult(null);
-        }}
-      />
-    );
-  }
+        .invoice-actions {
+          display: flex;
+          justify-content: center;
+          gap: 10px;
+          margin: 16px auto;
+          max-width: 700px;
+        }
 
-  return (
-    <main style={styles.page}>
-      <header style={styles.header}>
-        <div>
-          <h2 style={styles.heading}>Sales & Billing</h2>
-          <p style={styles.subtitle}>वृंदावन रसोई</p>
-        </div>
+        .invoice-actions button {
+          border: 0;
+          border-radius: 7px;
+          padding: 12px 18px;
+          font-weight: bold;
+          background: #805326;
+          color: white;
+          cursor: pointer;
+        }
 
-        <span style={styles.role}>
-          {isOwner ? "OWNER" : "STAFF"}
-        </span>
-      </header>
+        .invoice-actions .secondary {
+          background: #e8dcc8;
+          color: #49321f;
+        }
 
-      <section style={styles.card}>
-        <h3 style={styles.title}>ग्राहक की जानकारी</h3>
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
 
-        <label style={styles.label}>सेव ग्राहक चुनें (वैकल्पिक)</label>
-        <select style={styles.input} value={customerId} onChange={async (event) => {
-          const id = event.target.value;
-          setCustomerId(id);
-          const customer = customers.find((entry) => entry.id === id);
-          if (!customer) { setCustomerName(""); setCustomerMobile(""); setAvailableAdvance(0); setAdvanceUsed("0"); return; }
-          setCustomerName(customer.name); setCustomerMobile(customer.mobile);
-          try { const records = await getCustomerAdvanceTransactions(id); const balance = calculateAdvanceBalance(records); setAvailableAdvance(balance); setAdvanceUsed("0"); }
-          catch { setError("ग्राहक का एडवांस बैलेंस लोड नहीं हो पाया।"); }
-        }}>
-          <option value="">नया / Walk-in ग्राहक</option>
-          {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} — {customer.mobile}</option>)}
-        </select>
-        <label style={styles.label}>ग्राहक का नाम</label>
-        <input style={styles.input} type="text" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setCustomerId(""); }} placeholder="ग्राहक का नाम लिखें" />
-        <label style={styles.label}>मोबाइल नंबर</label>
-        <input style={styles.input} type="tel" inputMode="numeric" maxLength={10} value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="10 अंकों का मोबाइल" />
-        {customerId && <p style={styles.note}>उपलब्ध एडवांस: <strong>{money(availableAdvance)}</strong></p>}
-      </section>
+          html,
+          body {
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            overflow: visible !important;
+          }
 
-      <section style={styles.card}>
-        <h3 style={styles.title}>Item चुनें</h3>
+          body > *:not(.invoice-page) {
+            display: none !important;
+          }
 
-        {loading ? (
-          <p>Items लोड हो रहे हैं...</p>
-        ) : items.length === 0 ? (
-          <p style={styles.empty}>
-            कोई Active Item उपलब्ध नहीं है। पहले Item Master में Item जोड़ें।
+          body > .invoice-page {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            color: #49321f !important;
+            overflow: visible !important;
+          }
+
+          .invoice-paper {
+            display: block !important;
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 5mm !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: white !important;
+          }
+
+          .invoice-actions {
+            display: none !important;
+          }
+
+          .invoice-header,
+          .invoice-totals,
+          .invoice-footer {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .invoice-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .invoice-table th {
+            background: #f1e4ca !important;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
+        }
+      `}</style>
+
+      <div className="invoice-paper">
+        <header className="invoice-header">
+          <h1>वृंदावन रसोई</h1>
+          <p>जहाँ स्वाद और सुकून साथ मिलते हैं</p>
+          <p>बिलंदा, फतेहपुर, उत्तर प्रदेश</p>
+          <p>मोबाइल: 7007418571</p>
+          <p>
+            <strong>शुद्ध सात्विक भोजन</strong>
           </p>
-        ) : (
-          <>
-            <label style={styles.label}>Item</label>
+        </header>
 
-            <select
-              style={styles.input}
-              value={selectedItem}
-              onChange={(event) => setSelectedItem(event.target.value)}
-            >
-              <option value="">Item चुनें</option>
-
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — {money(item.rate)} / {item.unit}
-                </option>
-              ))}
-            </select>
-
-            <label style={styles.label}>Quantity</label>
-
-            <input
-              style={styles.input}
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-            />
-
-            <button
-              style={styles.primaryButton}
-              onClick={addToCart}
-            >
-              + बिल में जोड़ें
-            </button>
-          </>
-        )}
-      </section>
-
-      <section style={styles.card}>
-        <h3 style={styles.title}>बिल के Items</h3>
-
-        {cart.length === 0 ? (
-          <p style={styles.empty}>अभी बिल खाली है।</p>
-        ) : (
-          <div style={styles.list}>
-            {cart.map((item) => (
-              <article key={item.itemId} style={styles.cartItem}>
-                <div style={{ flex: 1 }}>
-                  <strong>{item.name}</strong>
-
-                  <p style={styles.itemInfo}>
-                    {money(item.rate)} × {item.quantity} {item.unit}
-                  </p>
-
-                  <strong>
-                    {money(item.rate * item.quantity)}
-                  </strong>
-                </div>
-
-                <div style={styles.quantityBox}>
-                  <input
-                    aria-label={`${item.name} Quantity`}
-                    style={styles.quantityInput}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={item.quantity}
-                    onChange={(event) =>
-                      changeQuantity(item.itemId, event.target.value)
-                    }
-                  />
-
-                  <button
-                    style={styles.removeButton}
-                    onClick={() => removeItem(item.itemId)}
-                  >
-                    हटाएँ
-                  </button>
-                </div>
-              </article>
-            ))}
+        <div className="invoice-meta">
+          <div>
+            <strong>ग्राहक:</strong> {sale.customerName}
           </div>
-        )}
-      </section>
 
-      <section style={styles.card}>
-        <h3 style={styles.title}>बिल का हिसाब</h3>
+          {sale.customerMobile && <div><strong>मोबाइल:</strong> {sale.customerMobile}</div>}
+          <div>
+            <strong>दिनांक:</strong> {date}
+          </div>
 
-        <div style={styles.summaryRow}>
-          <span>Subtotal</span>
-          <strong>{money(subtotal)}</strong>
+          <div>
+            <strong>बिल:</strong> Draft Preview
+          </div>
         </div>
 
-        <label style={styles.label}>
-          Discount (₹) — {isOwner ? "Owner" : "Staff अधिकतम 5%"}
-        </label>
+        <table className="invoice-table">
+          <thead>
+            <tr>
+              <th>क्र.</th>
+              <th>विवरण</th>
+              <th className="number">मात्रा</th>
+              <th className="number">दर</th>
+              <th className="number">राशि</th>
+            </tr>
+          </thead>
 
-        <input
-          style={styles.input}
-          type="number"
-          min="0"
-          max={discountLimit}
-          step="0.01"
-          value={discount}
-          onChange={(event) => setDiscount(event.target.value)}
-        />
+          <tbody>
+            {sale.items.map((item, index) => (
+              <tr key={`${item.itemId}-${index}`}>
+                <td>{index + 1}</td>
+                <td>{item.name}</td>
+                <td className="number">{item.quantity}</td>
+                <td className="number">{money(item.rate)}</td>
+                <td className="number">
+                  {money(item.quantity * item.rate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-        <div style={styles.summaryRow}>
-          <span>Discount</span>
-          <strong>
-            {money(Number.isFinite(discountValue) ? discountValue : 0)}
-          </strong>
+        <div className="invoice-totals">
+          <div className="invoice-total-row">
+            <span>कुल राशि</span>
+            <strong>{money(result.subtotal)}</strong>
+          </div>
+
+          <div className="invoice-total-row">
+            <span>Discount</span>
+            <strong>{money(result.discount)}</strong>
+          </div>
+
+          <div className="invoice-total-row invoice-grand-total">
+            <span>देय राशि</span>
+            <span>{money(result.finalTotal)}</span>
+          </div>
+
+          <div className="invoice-total-row">
+            <span>Cash</span>
+            <strong>{money(result.cashAmount)}</strong>
+          </div>
+
+          <div className="invoice-total-row">
+            <span>UPI</span>
+            <strong>{money(result.upiAmount)}</strong>
+          </div>
+
+          <div className="invoice-total-row">
+            <span>Advance समायोजन</span>
+            <strong>{money(result.advanceAmount)}</strong>
+          </div>
+
+          <div className="invoice-total-row">
+            <span>कुल भुगतान</span>
+            <strong>{money(result.paidAmount)}</strong>
+          </div>
         </div>
 
-        <div style={styles.totalRow}>
-          <span>Final Total</span>
-          <strong>{money(finalTotal)}</strong>
-        </div>
-      </section>
+        <footer className="invoice-footer">
+          <strong>धन्यवाद! पुनः पधारें।</strong>
+          <p>वृंदावन रसोई — आपका अपना सात्विक भोजनालय</p>
+          <small>
+            यह केवल बिल का Draft Preview है, जारी Invoice नहीं।
+          </small>
+        </footer>
+      </div>
 
-      <section style={styles.card}>
-        <h3 style={styles.title}>भुगतान का विवरण</h3>
+      <div className="invoice-actions">
+        <button onClick={printInvoice}>
+          Print / Save PDF
+        </button>
 
-        <label style={styles.label}>Cash (₹)</label>
-
-        <input
-          style={styles.input}
-          type="number"
-          min="0"
-          step="0.01"
-          value={cashAmount}
-          onChange={(event) => setCashAmount(event.target.value)}
-          placeholder="0"
-        />
-
-        <label style={styles.label}>UPI (₹)</label>
-
-        <input
-          style={styles.input}
-          type="number"
-          min="0"
-          step="0.01"
-          value={upiAmount}
-          onChange={(event) => setUpiAmount(event.target.value)}
-          placeholder="0"
-        />
-
-        <label style={styles.label}>
-          Customer Advance इस्तेमाल (₹)
-        </label>
-
-        <input
-          style={styles.input}
-          type="number"
-          min="0"
-          step="0.01"
-          value={advanceUsed}
-          max={availableAdvance}
-          onChange={(event) => setAdvanceUsed(event.target.value)}
-          disabled={!customerId || availableAdvance <= 0}
-        />
-        {customerId && <p style={styles.note}>उपलब्ध एडवांस से अधिक राशि उपयोग नहीं कर सकते। अधिकतम: {money(availableAdvance)}</p>}
-
-        <div style={styles.summaryRow}>
-          <span>कुल भुगतान</span>
-          <strong>
-            {money(safeCash + safeUpi + safeAdvance)}
-          </strong>
-        </div>
-
-        <div style={styles.summaryRow}>
-          <span>शेष राशि</span>
-          <strong>
-            {money(finalTotal - safeCash - safeUpi - safeAdvance)}
-          </strong>
-        </div>
-
-        <p style={styles.note}>
-          नियम: इस बिल में पूरा भुगतान Cash, UPI और उपलब्ध Advance से ही
-          दर्ज होगा। Customer Credit की सुविधा नहीं है।
-        </p>
-      </section>
-
-      {error && <p style={styles.error}>{error}</p>}
-
-      <button
-        style={styles.primaryButton}
-        onClick={openInvoicePreview}
-      >
-        बिल जाँचें और Invoice Preview देखें
-      </button>
-
-      <button
-        style={styles.resetButton}
-        onClick={resetBill}
-      >
-        नया बिल शुरू करें
-      </button>
-
-      <p style={styles.warning}>
-        अभी यह केवल Billing Draft Preview है। वास्तविक Invoice Number,
-        Sale Save, Advance Adjustment और Stock Update सक्रिय नहीं हैं।
-      </p>
-    </main>
+        <button className="secondary" onClick={onClose}>
+          वापस जाएँ
+        </button>
+      </div>
+    </div>,
+    document.body
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    padding: 16,
-    background: "#f8f3e8",
-    minHeight: "100vh",
-    color: "#49321f",
-  },
-
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-
-  heading: {
-    margin: 0,
-    fontSize: 24,
-  },
-
-  subtitle: {
-    margin: "5px 0",
-    color: "#80694f",
-  },
-
-  role: {
-    background: "#ead9b5",
-    padding: "8px 12px",
-    borderRadius: 20,
-    fontWeight: 700,
-    fontSize: 12,
-  },
-
-  card: {
-    background: "#fffdf8",
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 15,
-    border: "1px solid #e5d6b8",
-  },
-
-  title: {
-    marginTop: 0,
-    color: "#67451f",
-  },
-
-  label: {
-    display: "block",
-    marginTop: 13,
-    marginBottom: 6,
-    fontWeight: 600,
-  },
-
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: 12,
-    border: "1px solid #d8c6a5",
-    borderRadius: 8,
-    background: "#fff",
-    fontSize: 16,
-  },
-
-  primaryButton: {
-    width: "100%",
-    marginTop: 15,
-    background: "#79552e",
-    color: "#fff",
-    border: 0,
-    borderRadius: 9,
-    padding: 13,
-    fontWeight: 700,
-    fontSize: 15,
-    cursor: "pointer",
-  },
-
-  resetButton: {
-    width: "100%",
-    marginTop: 10,
-    background: "#eadfc9",
-    color: "#49321f",
-    border: 0,
-    borderRadius: 9,
-    padding: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-
-  list: {
-    display: "grid",
-    gap: 10,
-  },
-
-  cartItem: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    padding: "12px 0",
-    borderBottom: "1px solid #eadfc9",
-  },
-
-  itemInfo: {
-    margin: "5px 0",
-    color: "#80694f",
-    fontSize: 13,
-  },
-
-  quantityBox: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 7,
-    width: 85,
-  },
-
-  quantityInput: {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: 8,
-    border: "1px solid #d8c6a5",
-    borderRadius: 7,
-  },
-
-  removeButton: {
-    background: "#f4e5df",
-    color: "#963d2d",
-    border: 0,
-    padding: 7,
-    borderRadius: 7,
-    cursor: "pointer",
-  },
-
-  summaryRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    padding: "9px 0",
-  },
-
-  totalRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 10,
-    borderTop: "1px solid #d8c6a5",
-    marginTop: 10,
-    paddingTop: 14,
-    fontSize: 20,
-    fontWeight: 800,
-    color: "#67451f",
-  },
-
-  note: {
-    background: "#f2e8d5",
-    padding: 11,
-    borderRadius: 9,
-    fontSize: 12,
-    lineHeight: 1.6,
-    color: "#70542f",
-  },
-
-  empty: {
-    color: "#80694f",
-    lineHeight: 1.6,
-  },
-
-  error: {
-    color: "#b42318",
-    background: "#fce8e6",
-    padding: 12,
-    borderRadius: 8,
-    fontWeight: 600,
-  },
-
-  warning: {
-    color: "#80694f",
-    fontSize: 12,
-    lineHeight: 1.6,
-    marginTop: 15,
-  },
-};
-  
