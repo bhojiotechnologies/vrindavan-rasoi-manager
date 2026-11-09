@@ -3,6 +3,12 @@ import {
   getAllItems,
   type ItemData,
 } from "./itemService";
+import {
+  createSaleDraft,
+  type SaleDraft,
+  type SaleDraftResult,
+} from "./saleService";
+import InvoicePreview from "./InvoicePreview";
 
 interface SalesBillingProps {
   role: "owner" | "staff";
@@ -27,6 +33,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
   const [items, setItems] = useState<ItemData[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedItem, setSelectedItem] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [discount, setDiscount] = useState("0");
   const [cashAmount, setCashAmount] = useState("");
@@ -35,6 +42,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [previewSale, setPreviewSale] = useState<SaleDraft | null>(null);
+  const [previewResult, setPreviewResult] =
+    useState<SaleDraftResult | null>(null);
 
   const isOwner = role === "owner";
 
@@ -43,7 +53,6 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       try {
         setLoading(true);
         setError("");
-
         const data = await getAllItems();
         setItems(data.filter((item) => item.active));
       } catch (err) {
@@ -160,46 +169,62 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
   function resetBill() {
     setCart([]);
+    setCustomerName("");
     setDiscount("0");
     setCashAmount("");
     setUpiAmount("");
     setAdvanceUsed("0");
     setError("");
     setMessage("");
+    setPreviewSale(null);
+    setPreviewResult(null);
   }
 
-  function validateBill() {
+  function openInvoicePreview() {
     setError("");
     setMessage("");
 
-    if (cart.length === 0) {
-      setError("बिल में कम से कम एक Item जोड़ें।");
+    if (!customerName.trim()) {
+      setError("कृपया ग्राहक का नाम दर्ज करें।");
       return;
     }
 
-    if (!validDiscount) {
+    const draft: SaleDraft = {
+      customerName: customerName.trim(),
+      items: cart.map((item) => ({
+        itemId: item.itemId,
+        name: item.name,
+        quantity: item.quantity,
+        rate: item.rate,
+      })),
+      discount: discountValue,
+      cashAmount: cash,
+      upiAmount: upi,
+      advanceAmount: advance,
+      paymentMode: "cash",
+    };
+
+    try {
+      const result = createSaleDraft(draft, role);
+      setPreviewSale(draft);
+      setPreviewResult(result);
+    } catch (err) {
       setError(
-        isOwner
-          ? "Discount की राशि सही दर्ज करें।"
-          : "Staff अधिकतम 5% Discount दे सकता है।"
+        err instanceof Error ? err.message : "बिल की जाँच नहीं हो सकी।"
       );
-      return;
     }
+  }
 
-    if (cash + upi + advance > finalTotal + 0.01) {
-      setError("भुगतान कुल बिल से अधिक है।");
-      return;
-    }
-
-    if (!validPayments) {
-      setError(
-        "Cash + UPI + Advance का कुल भुगतान बिल की राशि के बराबर होना चाहिए।"
-      );
-      return;
-    }
-
-    setMessage(
-      "बिल का हिसाब सही है। अभी यह केवल Preview है; Sale डेटाबेस में सेव नहीं हुई है।"
+  if (previewSale && previewResult) {
+    return (
+      <InvoicePreview
+        sale={previewSale}
+        result={previewResult}
+        onClose={() => {
+          setPreviewSale(null);
+          setPreviewResult(null);
+        }}
+      />
     );
   }
 
@@ -214,6 +239,19 @@ export default function SalesBilling({ role }: SalesBillingProps) {
           {isOwner ? "OWNER" : "STAFF"}
         </span>
       </header>
+
+      <section style={styles.card}>
+        <h3 style={styles.title}>ग्राहक की जानकारी</h3>
+
+        <label style={styles.label}>ग्राहक का नाम</label>
+        <input
+          style={styles.input}
+          type="text"
+          value={customerName}
+          onChange={(event) => setCustomerName(event.target.value)}
+          placeholder="ग्राहक का नाम लिखें"
+        />
+      </section>
 
       <section style={styles.card}>
         <h3 style={styles.title}>Item चुनें</h3>
@@ -391,9 +429,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
       <button
         style={styles.primaryButton}
-        onClick={validateBill}
+        onClick={openInvoicePreview}
       >
-        बिल का हिसाब जाँचें
+        बिल जाँचें और Invoice Preview देखें
       </button>
 
       <button
@@ -404,8 +442,8 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       </button>
 
       <p style={styles.warning}>
-        अभी यह Billing Preview है। वास्तविक Invoice Number, Sale Save,
-        Stock Update और PDF अगले चरण में सुरक्षित तरीके से जोड़े जाएँगे।
+        यह अभी Draft Preview है। इससे वास्तविक Invoice जारी नहीं होगा,
+        Sale डेटाबेस में सेव नहीं होगी और Stock अपडेट नहीं होगा।
       </p>
     </main>
   );
