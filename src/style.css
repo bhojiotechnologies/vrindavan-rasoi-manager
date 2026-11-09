@@ -1,1 +1,152 @@
 
+@import url('https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: Inter, Hind, sans-serif;
+  color: #3f3023;
+  background: #f7f1e5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: radial-gradient(circle at top, #fffaf0, #f3ead8 70%);
+}
+
+.panel {
+  width: min(100%, 430px);
+  padding: 32px 26px;
+  border-radius: 24px;
+  background: #fffdf8;
+  border: 1px solid #e8d9bd;
+  box-shadow: 0 18px 55px #6c4d2518;
+  text-align: center;
+}
+
+.mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  color: #fff8e8;
+  background: linear-gradient(145deg, #b58b45, #76502c);
+  font-size: 24px;
+}
+
+.eyebrow {
+  color: #9b773e;
+  font-size: 11px;
+  letter-spacing: 3px;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 8px 0;
+  font-family: Hind, sans-serif;
+  font-size: 32px;
+}
+
+.tagline {
+  color: #866b4a;
+  margin: 0;
+}
+
+.divider {
+  height: 1px;
+  background: #eadfcf;
+  margin: 25px 0;
+}
+
+h2 {
+  font-size: 21px;
+  margin: 0 0 8px;
+}
+
+.muted {
+  color: #897d6e;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+form {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  margin-top: 22px;
+}
+
+label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  border: 1px solid #dfd1bc;
+  border-radius: 12px;
+  padding: 14px;
+  background: white;
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-top: 8px;
+  background: #87602f;
+  color: white;
+  font: inherit;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: .6;
+}
+
+button.secondary {
+  background: #eee4d3;
+  color: #654825;
+  width: 100%;
+}
+
+.error {
+  color: #a52f24;
+  background: #fff0ed;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.notice {
+  background: #f7f0e3;
+  padding: 16px;
+  border-radius: 14px;
+  margin: 20px 0;
+  overflow-wrap: anywhere;
+}
+
+.notice p {
+  margin: 7px 0;
+  font-size: 14px;
+}
+
+.foot {
+  margin-top: 24px;
+  color: #a3937d;
+  font-size: 11px;
+}
