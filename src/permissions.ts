@@ -1,4 +1,3 @@
-
 import type { UserRole } from "./schema";
 
 export type Permission =
