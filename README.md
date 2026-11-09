@@ -2,16 +2,12 @@
 
 जहाँ स्वाद और सुकून साथ मिलते हैं।
 
-A premium Hindi-English business management
-application for Vrindavan Rasoi.
+Initial mobile-first React + TypeScript + Firebase scaffold.
 
-## Features
-- Owner and Staff Login
-- Sales and Billing
-- Customer Management
-- Inventory Management
-- Supplier Management
-- Cash and Expense Management
-- PDF Reports
-- Firebase Cloud Sync
-- Offline PWA Support
+## Current milestone
+- React + TypeScript + Vite foundation
+- Firebase Authentication connection
+- Firestore user profile lookup
+- Premium cream, gold and brown login screen
+
+This is not production-ready. Complete and test Firestore Security Rules before adding real business data.
