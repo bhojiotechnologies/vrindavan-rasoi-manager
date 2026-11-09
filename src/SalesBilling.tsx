@@ -13,6 +13,7 @@ import {
 } from "./saleService";
 
 import InvoicePreview from "./InvoicePreview";
+import { getCustomers, getCustomerAdvanceTransactions, calculateAdvanceBalance, type CustomerRecord } from "./customerService";
 
 interface SalesBillingProps {
   role: "owner" | "staff";
@@ -38,6 +39,10 @@ export default function SalesBilling({ role }: SalesBillingProps) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedItem, setSelectedItem] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [customerMobile, setCustomerMobile] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
+  const [availableAdvance, setAvailableAdvance] = useState(0);
   const [quantity, setQuantity] = useState("1");
   const [discount, setDiscount] = useState("0");
   const [cashAmount, setCashAmount] = useState("");
@@ -57,8 +62,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
         setLoading(true);
         setError("");
 
-        const data = await getAllItems();
+        const [data, customerData] = await Promise.all([getAllItems(), getCustomers()]);
         setItems(data.filter((item) => item.active));
+        setCustomers(customerData);
       } catch (err) {
         setError(
           err instanceof Error
@@ -168,6 +174,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
   function resetBill() {
     setCart([]);
     setCustomerName("");
+    setCustomerMobile("");
+    setCustomerId("");
+    setAvailableAdvance(0);
     setDiscount("0");
     setCashAmount("");
     setUpiAmount("");
@@ -182,6 +191,18 @@ export default function SalesBilling({ role }: SalesBillingProps) {
 
     if (!customerName.trim()) {
       setError("कृपया ग्राहक का नाम दर्ज करें।");
+      return;
+    }
+    if (customerMobile && !/^\d{10}$/.test(customerMobile)) {
+      setError("ग्राहक का मोबाइल नंबर 10 अंकों का होना चाहिए।");
+      return;
+    }
+    if (customerId && safeAdvance > availableAdvance) {
+      setError("उपयोग किया गया एडवांस उपलब्ध बैलेंस से अधिक है।");
+      return;
+    }
+    if (safeAdvance > 0 && !customerId) {
+      setError("एडवांस उपयोग करने के लिए सेव ग्राहक चुनें।");
       return;
     }
 
@@ -217,7 +238,9 @@ export default function SalesBilling({ role }: SalesBillingProps) {
     }
 
     const draft: SaleDraft = {
+      customerId: customerId || undefined,
       customerName: customerName.trim(),
+      customerMobile: customerMobile.trim(),
       items: cart.map((item) => ({
         itemId: item.itemId,
         name: item.name,
@@ -228,7 +251,7 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       cashAmount: cash,
       upiAmount: upi,
       advanceAmount: advance,
-      paymentMode: "cash",
+      paymentMode: safeCash > 0 && safeUpi > 0 ? "split" : safeUpi > 0 ? "upi" : safeAdvance > 0 && safeCash === 0 ? "advance" : "cash",
     };
 
     try {
@@ -274,15 +297,24 @@ export default function SalesBilling({ role }: SalesBillingProps) {
       <section style={styles.card}>
         <h3 style={styles.title}>ग्राहक की जानकारी</h3>
 
+        <label style={styles.label}>सेव ग्राहक चुनें (वैकल्पिक)</label>
+        <select style={styles.input} value={customerId} onChange={async (event) => {
+          const id = event.target.value;
+          setCustomerId(id);
+          const customer = customers.find((entry) => entry.id === id);
+          if (!customer) { setCustomerName(""); setCustomerMobile(""); setAvailableAdvance(0); setAdvanceUsed("0"); return; }
+          setCustomerName(customer.name); setCustomerMobile(customer.mobile);
+          try { const records = await getCustomerAdvanceTransactions(id); const balance = calculateAdvanceBalance(records); setAvailableAdvance(balance); setAdvanceUsed("0"); }
+          catch { setError("ग्राहक का एडवांस बैलेंस लोड नहीं हो पाया।"); }
+        }}>
+          <option value="">नया / Walk-in ग्राहक</option>
+          {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} — {customer.mobile}</option>)}
+        </select>
         <label style={styles.label}>ग्राहक का नाम</label>
-
-        <input
-          style={styles.input}
-          type="text"
-          value={customerName}
-          onChange={(event) => setCustomerName(event.target.value)}
-          placeholder="ग्राहक का नाम लिखें"
-        />
+        <input style={styles.input} type="text" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setCustomerId(""); }} placeholder="ग्राहक का नाम लिखें" />
+        <label style={styles.label}>मोबाइल नंबर</label>
+        <input style={styles.input} type="tel" inputMode="numeric" maxLength={10} value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="10 अंकों का मोबाइल" />
+        {customerId && <p style={styles.note}>उपलब्ध एडवांस: <strong>{money(availableAdvance)}</strong></p>}
       </section>
 
       <section style={styles.card}>
@@ -452,8 +484,11 @@ export default function SalesBilling({ role }: SalesBillingProps) {
           min="0"
           step="0.01"
           value={advanceUsed}
+          max={availableAdvance}
           onChange={(event) => setAdvanceUsed(event.target.value)}
+          disabled={!customerId || availableAdvance <= 0}
         />
+        {customerId && <p style={styles.note}>उपलब्ध एडवांस से अधिक राशि उपयोग नहीं कर सकते। अधिकतम: {money(availableAdvance)}</p>}
 
         <div style={styles.summaryRow}>
           <span>कुल भुगतान</span>
@@ -679,3 +714,4 @@ const styles: Record<string, CSSProperties> = {
     marginTop: 15,
   },
 };
+  
