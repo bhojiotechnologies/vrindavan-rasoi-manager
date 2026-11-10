@@ -11,7 +11,7 @@ interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
   onClose: () => void;
-  onSave: () => Promise<void>;
+  onSave: () => Promise<string>;
 }
 
 function money(value: number): string {
