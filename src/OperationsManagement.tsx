@@ -12,7 +12,7 @@ import {
   type SupplierRecord,
 } from "./supplierService";
 
-import { createPurchase } from "./purchaseService";
+import { createPurchase, updatePurchase } from "./purchaseService";
 import { createExpense } from "./expenseService";
 import { createWastage } from "./wastageService";
 
@@ -228,6 +228,13 @@ function OperationsManagement({
     useState<PaymentMode>("cash");
   const [purchaseInvoice, setPurchaseInvoice] = useState("");
 
+  // Owner-only purchase editing. Supplier and already-paid amount stay unchanged.
+  const [editingPurchaseId, setEditingPurchaseId] = useState("");
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState("");
+  const [editPurchaseItems, setEditPurchaseItems] = useState<
+    { itemId: string; quantity: string; rate: string }[]
+  >([]);
+
   // Expense Form
   const [expenseTitle, setExpenseTitle] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("अन्य");
@@ -437,6 +444,85 @@ function OperationsManagement({
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Purchase दर्ज नहीं हुई।"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEditPurchase = (entry: PurchaseHistoryRecord) => {
+    if (role !== "owner") return;
+
+    setEditingPurchaseId(entry.id);
+    setEditInvoiceNumber(entry.invoiceNumber || "");
+    setEditPurchaseItems(
+      (entry.items || []).map((item) => ({
+        itemId: item.itemId,
+        quantity: String(item.quantity),
+        rate: String(item.rate),
+      }))
+    );
+    setMessage("Purchase Edit Mode: Supplier और पहले से किया गया भुगतान बदला नहीं जा सकता।");
+  };
+
+  const cancelEditPurchase = () => {
+    setEditingPurchaseId("");
+    setEditInvoiceNumber("");
+    setEditPurchaseItems([]);
+  };
+
+  const handleUpdatePurchase = async (
+    event: FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    if (role !== "owner") {
+      setMessage("केवल Owner Purchase Edit कर सकता है।");
+      return;
+    }
+
+    if (!editingPurchaseId || editPurchaseItems.length === 0) {
+      setMessage("कम से कम एक Purchase Item आवश्यक है।");
+      return;
+    }
+
+    const invalidItem = editPurchaseItems.some(
+      (item) =>
+        !item.itemId ||
+        !Number.isFinite(Number(item.quantity)) ||
+        Number(item.quantity) <= 0 ||
+        !Number.isFinite(Number(item.rate)) ||
+        Number(item.rate) < 0
+    );
+
+    if (invalidItem) {
+      setMessage("सभी Items की Quantity और Rate सही भरें।");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      await updatePurchase({
+        purchaseId: editingPurchaseId,
+        items: editPurchaseItems.map((item) => ({
+          itemId: item.itemId,
+          quantity: Number(item.quantity),
+          rate: Number(item.rate),
+        })),
+        invoiceNumber: editInvoiceNumber,
+        userId,
+        userName,
+        role,
+      });
+
+      cancelEditPurchase();
+      await refresh();
+      setMessage("Purchase सफलतापूर्वक Update हो गई। Stock और Supplier Balance भी समायोजित हो गए।");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Purchase Update नहीं हुई।"
       );
     } finally {
       setSaving(false);
@@ -842,6 +928,144 @@ function OperationsManagement({
                   <div style={styles.muted}>
                     Reference: {entry.id}
                   </div>
+
+                  {role === "owner" && (
+                    <button
+                      type="button"
+                      style={{ ...styles.secondaryButton, marginTop: 8 }}
+                      onClick={() => startEditPurchase(entry)}
+                    >
+                      ✏️ Purchase Edit करें
+                    </button>
+                  )}
+
+                  {role === "owner" && editingPurchaseId === entry.id && (
+                    <form
+                      style={{ ...styles.card, marginTop: 12 }}
+                      onSubmit={handleUpdatePurchase}
+                    >
+                      <h4 style={{ margin: "0 0 8px" }}>Purchase Edit</h4>
+                      <p style={styles.muted}>
+                        Supplier: {entry.supplierName} (बदला नहीं जा सकता)
+                        <br />
+                        पहले से भुगतान: {money(entry.paidAmount)} (बदला नहीं जा सकता)
+                      </p>
+
+                      <label style={styles.label}>Supplier Invoice Number</label>
+                      <input
+                        style={styles.input}
+                        value={editInvoiceNumber}
+                        onChange={(e) => setEditInvoiceNumber(e.target.value)}
+                      />
+
+                      {editPurchaseItems.map((line, index) => (
+                        <div
+                          key={`${entry.id}-edit-${index}`}
+                          style={{ borderTop: "1px solid #eee2ce", paddingTop: 8, marginTop: 8 }}
+                        >
+                          <label style={styles.label}>Item {index + 1}</label>
+                          <select
+                            style={styles.input}
+                            value={line.itemId}
+                            onChange={(e) =>
+                              setEditPurchaseItems((current) =>
+                                current.map((row, rowIndex) =>
+                                  rowIndex === index
+                                    ? { ...row, itemId: e.target.value }
+                                    : row
+                                )
+                              )
+                            }
+                            required
+                          >
+                            <option value="">Item चुनें</option>
+                            {items.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name} ({item.unit})
+                              </option>
+                            ))}
+                          </select>
+
+                          <label style={styles.label}>Quantity</label>
+                          <input
+                            style={styles.input}
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            value={line.quantity}
+                            onChange={(e) =>
+                              setEditPurchaseItems((current) =>
+                                current.map((row, rowIndex) =>
+                                  rowIndex === index
+                                    ? { ...row, quantity: e.target.value }
+                                    : row
+                                )
+                              )
+                            }
+                            required
+                          />
+
+                          <label style={styles.label}>Rate (₹)</label>
+                          <input
+                            style={styles.input}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.rate}
+                            onChange={(e) =>
+                              setEditPurchaseItems((current) =>
+                                current.map((row, rowIndex) =>
+                                  rowIndex === index
+                                    ? { ...row, rate: e.target.value }
+                                    : row
+                                )
+                              )
+                            }
+                            required
+                          />
+
+                          {editPurchaseItems.length > 1 && (
+                            <button
+                              type="button"
+                              style={{ ...styles.secondaryButton, marginTop: 8 }}
+                              onClick={() =>
+                                setEditPurchaseItems((current) =>
+                                  current.filter((_, rowIndex) => rowIndex !== index)
+                                )
+                              }
+                            >
+                              यह Item हटाएँ
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        style={{ ...styles.secondaryButton, marginTop: 10 }}
+                        onClick={() =>
+                          setEditPurchaseItems((current) => [
+                            ...current,
+                            { itemId: "", quantity: "1", rate: "0" },
+                          ])
+                        }
+                      >
+                        + एक और Item जोड़ें
+                      </button>
+
+                      <button style={styles.button} disabled={saving}>
+                        {saving ? "Update हो रहा है..." : "Changes Save करें"}
+                      </button>
+                      <button
+                        type="button"
+                        style={{ ...styles.secondaryButton, width: "100%", marginTop: 8 }}
+                        disabled={saving}
+                        onClick={cancelEditPurchase}
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  )}
                 </div>
               ))
             )}
