@@ -2,6 +2,7 @@
 import {
   collection,
   doc,
+  getDocs,
   query,
   where,
   runTransaction,
@@ -9,6 +10,7 @@ import {
 
 import { db, auth } from "./firebase";
 import { COLLECTIONS } from "./schema";
+
 import {
   calculateSubtotal,
   calculateDiscount,
@@ -100,10 +102,7 @@ export function validateSaleDraft(
       throw new Error("Quantity शून्य से अधिक होनी चाहिए।");
     }
 
-    if (
-      !Number.isFinite(item.rate) ||
-      item.rate < 0
-    ) {
+    if (!Number.isFinite(item.rate) || item.rate < 0) {
       throw new Error("Item का Rate सही नहीं है।");
     }
   }
@@ -179,11 +178,6 @@ export function createSaleDraft(
   return validateSaleDraft(sale, role);
 }
 
-/**
- * वास्तविक बिक्री सेव करना।
- * Invoice Counter, Sale और Advance Adjustment
- * एक Firestore Transaction में सेव होते हैं।
- */
 export async function saveSale(
   sale: SaleDraft,
   role: "owner" | "staff"
@@ -215,59 +209,35 @@ export async function saveSale(
     ? doc(db, COLLECTIONS.customers, sale.customerId)
     : null;
 
-  const advanceQuery = sale.customerId
-    ? query(
-        collection(db, COLLECTIONS.advanceTransactions),
-        where("customerId", "==", sale.customerId)
-      )
-    : null;
+  /*
+   * Firestore Transaction.get() Query स्वीकार नहीं करता।
+   * इसलिए Advance की Query Transaction के बाहर पढ़ी जाती है।
+   */
+  let availableAdvance = 0;
 
-  const adjustmentRef =
-    result.advanceAmount > 0
-      ? doc(collection(db, COLLECTIONS.advanceTransactions))
-      : null;
+  if (sale.customerId && result.advanceAmount > 0) {
+    const advanceQuery = query(
+      collection(db, COLLECTIONS.advanceTransactions),
+      where("customerId", "==", sale.customerId)
+    );
 
-  return runTransaction(db, async (transaction) => {
-    // सभी Reads, Writes से पहले किए जाते हैं।
-    const counterSnapshot = await transaction.get(counterRef);
+    const advanceSnapshot = await getDocs(advanceQuery);
 
-    if (!counterSnapshot.exists() && sale.advanceAmount > 0 && !customerRef) {
-      throw new Error("Advance के लिए ग्राहक चुनना जरूरी है।");
-    }
+    for (const entry of advanceSnapshot.docs) {
+      const data = entry.data();
+      const amount = Number(data.amount || 0);
 
-    if (customerRef) {
-      const customerSnapshot = await transaction.get(customerRef);
-
-      if (!customerSnapshot.exists()) {
-        throw new Error("चुना गया ग्राहक उपलब्ध नहीं है।");
+      if (data.status && data.status !== "active") {
+        continue;
       }
 
-      if (customerSnapshot.data().status === "inactive") {
-        throw new Error("यह ग्राहक निष्क्रिय है।");
-      }
-    }
-
-    let availableAdvance = 0;
-
-    if (advanceQuery) {
-      const advanceSnapshot = await transaction.get(advanceQuery);
-
-      for (const entry of advanceSnapshot.docs) {
-        const data = entry.data();
-        const amount = Number(data.amount || 0);
-
-        if (data.status && data.status !== "active") {
-          continue;
-        }
-
-        if (data.type === "deposit") {
-          availableAdvance += amount;
-        } else if (
-          data.type === "refund" ||
-          data.type === "adjustment"
-        ) {
-          availableAdvance -= amount;
-        }
+      if (data.type === "deposit") {
+        availableAdvance += amount;
+      } else if (
+        data.type === "refund" ||
+        data.type === "adjustment"
+      ) {
+        availableAdvance -= amount;
       }
     }
 
@@ -279,6 +249,28 @@ export async function saveSale(
       throw new Error(
         `उपलब्ध Advance ₹${availableAdvance.toFixed(2)} है।`
       );
+    }
+  }
+
+  const adjustmentRef =
+    result.advanceAmount > 0
+      ? doc(collection(db, COLLECTIONS.advanceTransactions))
+      : null;
+
+  return runTransaction(db, async (transaction) => {
+    // Transaction के सभी Reads, Writes से पहले।
+    const counterSnapshot = await transaction.get(counterRef);
+
+    if (customerRef) {
+      const customerSnapshot = await transaction.get(customerRef);
+
+      if (!customerSnapshot.exists()) {
+        throw new Error("चुना गया ग्राहक उपलब्ध नहीं है।");
+      }
+
+      if (customerSnapshot.data().status === "inactive") {
+        throw new Error("यह ग्राहक निष्क्रिय है।");
+      }
     }
 
     const lastNumber = counterSnapshot.exists()
