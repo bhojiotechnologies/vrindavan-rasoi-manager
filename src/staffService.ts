@@ -8,8 +8,8 @@ import {
 import {
   collection,
   doc,
-  getDocs,
   getDoc,
+  getDocs,
   runTransaction,
   updateDoc,
 } from "firebase/firestore";
@@ -63,9 +63,7 @@ export async function getStaffAccounts(): Promise<StaffAccount[]> {
       uid: entry.id,
       ...entry.data(),
     }))
-    .filter(
-      (entry) => entry.role === "staff"
-    ) as StaffAccount[];
+    .filter((entry) => entry.role === "staff") as StaffAccount[];
 }
 
 export async function createStaffAccount(input: {
@@ -88,9 +86,7 @@ export async function createStaffAccount(input: {
   }
 
   if (!validateUsername(username)) {
-    throw new Error(
-      "Staff ID में 3 से 20 अक्षर या अंक रखें।"
-    );
+    throw new Error("Staff ID में 3 से 20 अक्षर या अंक रखें।");
   }
 
   if (password.length < 6) {
@@ -120,7 +116,6 @@ export async function createStaffAccount(input: {
     createdUser = credential.user;
 
     const now = Date.now();
-
     const profileRef = doc(db, "users", createdUser.uid);
 
     await runTransaction(db, async (transaction) => {
@@ -149,17 +144,12 @@ export async function createStaffAccount(input: {
         createdAt: now,
       });
     });
-
-    await signOut(staffAuth);
   } catch (error) {
     if (createdUser) {
       try {
         await deleteUser(createdUser);
       } catch (cleanupError) {
-        console.error(
-          "Staff Auth cleanup error:",
-          cleanupError
-        );
+        console.error("Staff Auth cleanup error:", cleanupError);
       }
     }
 
@@ -171,13 +161,22 @@ export async function createStaffAccount(input: {
 
     throw error;
   }
+
+  // Account बन जाने के बाद Sign Out की त्रुटि से Account डिलीट नहीं होगा।
+  try {
+    await signOut(staffAuth);
+  } catch (error) {
+    console.warn("Secondary Auth sign-out warning:", error);
+  }
 }
 
 export async function setStaffStatus(
   staffUid: string,
   status: "active" | "inactive"
 ): Promise<void> {
-  if (!auth.currentUser) {
+  const owner = auth.currentUser;
+
+  if (!owner) {
     throw new Error("Owner Login उपलब्ध नहीं है।");
   }
 
@@ -186,6 +185,6 @@ export async function setStaffStatus(
   await updateDoc(staffRef, {
     status,
     updatedAt: Date.now(),
-    updatedBy: auth.currentUser.uid,
+    updatedBy: owner.uid,
   });
 }
