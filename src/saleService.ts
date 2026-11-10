@@ -1,9 +1,10 @@
+
 import {
   collection,
   doc,
-  runTransaction,
   query,
   where,
+  runTransaction,
 } from "firebase/firestore";
 
 import { db, auth } from "./firebase";
@@ -14,7 +15,11 @@ import {
   calculateFinalTotal,
 } from "./financeUtils";
 
-export type SalePaymentMode = "cash" | "upi" | "advance" | "split";
+export type SalePaymentMode =
+  | "cash"
+  | "upi"
+  | "advance"
+  | "split";
 
 export interface SaleDraftItem {
   itemId: string;
@@ -48,11 +53,17 @@ export interface SaleDraftResult {
   status: "PAID" | "INVALID";
 }
 
-function moneyRound(value: number): number {
+export interface SavedSaleResult {
+  saleId: string;
+  invoiceNumber: string;
+  createdAt: number;
+}
+
+function roundMoney(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function validateAmount(value: number, label: string) {
+function validateAmount(value: number, label: string): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${label} की राशि सही नहीं है।`);
   }
@@ -62,7 +73,7 @@ export function validateSaleDraft(
   sale: SaleDraft,
   role: "owner" | "staff"
 ): SaleDraftResult {
-  if (!sale.items.length) {
+  if (!sale.items || sale.items.length === 0) {
     throw new Error("बिल में कम से कम एक Item जोड़ें।");
   }
 
@@ -77,24 +88,38 @@ export function validateSaleDraft(
     throw new Error("मोबाइल नंबर 10 अंकों का होना चाहिए।");
   }
 
-  sale.items.forEach((item) => {
+  for (const item of sale.items) {
     if (!item.itemId || !item.name.trim()) {
       throw new Error("Item की जानकारी अधूरी है।");
     }
-    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+
+    if (
+      !Number.isFinite(item.quantity) ||
+      item.quantity <= 0
+    ) {
       throw new Error("Quantity शून्य से अधिक होनी चाहिए।");
     }
-    if (!Number.isFinite(item.rate) || item.rate < 0) {
-      throw new Error("Item Rate सही नहीं है।");
+
+    if (
+      !Number.isFinite(item.rate) ||
+      item.rate < 0
+    ) {
+      throw new Error("Item का Rate सही नहीं है।");
     }
-  });
+  }
 
   validateAmount(sale.discount, "Discount");
   validateAmount(sale.cashAmount, "Cash");
   validateAmount(sale.upiAmount, "UPI");
   validateAmount(sale.advanceAmount, "Advance");
 
-  const subtotal = moneyRound(
+  if (sale.advanceAmount > 0 && !sale.customerId) {
+    throw new Error(
+      "Advance इस्तेमाल करने के लिए सेव ग्राहक चुनें।"
+    );
+  }
+
+  const subtotal = roundMoney(
     calculateSubtotal(
       sale.items.map((item) => ({
         quantity: item.quantity,
@@ -103,19 +128,29 @@ export function validateSaleDraft(
     )
   );
 
-  if (role === "staff" && sale.discount > subtotal * 0.05) {
-    throw new Error("Staff अधिकतम 5% Discount दे सकता है।");
+  if (
+    role === "staff" &&
+    sale.discount > subtotal * 0.05
+  ) {
+    throw new Error(
+      "Staff अधिकतम 5% Discount दे सकता है।"
+    );
   }
 
-  const discount = moneyRound(
+  const discount = roundMoney(
     calculateDiscount(subtotal, sale.discount)
   );
-  const finalTotal = moneyRound(
+
+  const finalTotal = roundMoney(
     calculateFinalTotal(subtotal, discount)
   );
 
-  const paidAmount = moneyRound(
-    sale.cashAmount + sale.upiAmount + sale.advanceAmount
+  const cashAmount = roundMoney(sale.cashAmount);
+  const upiAmount = roundMoney(sale.upiAmount);
+  const advanceAmount = roundMoney(sale.advanceAmount);
+
+  const paidAmount = roundMoney(
+    cashAmount + upiAmount + advanceAmount
   );
 
   if (paidAmount !== finalTotal) {
@@ -124,19 +159,15 @@ export function validateSaleDraft(
     );
   }
 
-  if (sale.advanceAmount > 0 && !sale.customerId) {
-    throw new Error("Advance उपयोग करने के लिए सेव ग्राहक चुनें।");
-  }
-
   return {
     subtotal,
     discount,
     finalTotal,
-    cashAmount: moneyRound(sale.cashAmount),
-    upiAmount: moneyRound(sale.upiAmount),
-    advanceAmount: moneyRound(sale.advanceAmount),
+    cashAmount,
+    upiAmount,
+    advanceAmount,
     paidAmount,
-    balance: 0,
+    balance: roundMoney(finalTotal - paidAmount),
     status: "PAID",
   };
 }
@@ -149,32 +180,36 @@ export function createSaleDraft(
 }
 
 /**
- * वास्तविक बिक्री सेव करता है।
- * Sale, Invoice Counter और Advance Adjustment
+ * वास्तविक बिक्री सेव करना।
+ * Invoice Counter, Sale और Advance Adjustment
  * एक Firestore Transaction में सेव होते हैं।
  */
 export async function saveSale(
   sale: SaleDraft,
   role: "owner" | "staff"
-): Promise<{ saleId: string; invoiceNumber: string }> {
+): Promise<SavedSaleResult> {
   const user = auth.currentUser;
 
   if (!user) {
-    throw new Error("Login session समाप्त हो गया है। दोबारा Login करें।");
+    throw new Error(
+      "Login session समाप्त हो गया है। दोबारा Login करें।"
+    );
   }
 
   const result = validateSaleDraft(sale, role);
-  const now = Date.now();
+
   const year = new Date().getFullYear();
-  const counterId = String(year);
+  const now = Date.now();
 
   const counterRef = doc(
     db,
     COLLECTIONS.invoiceCounters,
-    counterId
+    String(year)
   );
 
-  const saleRef = doc(collection(db, COLLECTIONS.sales));
+  const saleRef = doc(
+    collection(db, COLLECTIONS.sales)
+  );
 
   const customerRef = sale.customerId
     ? doc(db, COLLECTIONS.customers, sale.customerId)
@@ -188,32 +223,66 @@ export async function saveSale(
     : null;
 
   const adjustmentRef =
-    sale.advanceAmount > 0
+    result.advanceAmount > 0
       ? doc(collection(db, COLLECTIONS.advanceTransactions))
       : null;
 
   return runTransaction(db, async (transaction) => {
-    const counterSnap = await transaction.get(counterRef);
+    // सभी Reads, Writes से पहले किए जाते हैं।
+    const counterSnapshot = await transaction.get(counterRef);
 
-    let customerSnap: Awaited<ReturnType<typeof transaction.get>> | null =
-      null;
-
-    let advanceSnap: Awaited<ReturnType<typeof transaction.get>> | null =
-      null;
+    if (!counterSnapshot.exists() && sale.advanceAmount > 0 && !customerRef) {
+      throw new Error("Advance के लिए ग्राहक चुनना जरूरी है।");
+    }
 
     if (customerRef) {
-      customerSnap = await transaction.get(customerRef);
-      if (!customerSnap.exists()) {
-        throw new Error("चुना गया ग्राहक अब उपलब्ध नहीं है।");
+      const customerSnapshot = await transaction.get(customerRef);
+
+      if (!customerSnapshot.exists()) {
+        throw new Error("चुना गया ग्राहक उपलब्ध नहीं है।");
+      }
+
+      if (customerSnapshot.data().status === "inactive") {
+        throw new Error("यह ग्राहक निष्क्रिय है।");
       }
     }
 
+    let availableAdvance = 0;
+
     if (advanceQuery) {
-      advanceSnap = await transaction.get(advanceQuery);
+      const advanceSnapshot = await transaction.get(advanceQuery);
+
+      for (const entry of advanceSnapshot.docs) {
+        const data = entry.data();
+        const amount = Number(data.amount || 0);
+
+        if (data.status && data.status !== "active") {
+          continue;
+        }
+
+        if (data.type === "deposit") {
+          availableAdvance += amount;
+        } else if (
+          data.type === "refund" ||
+          data.type === "adjustment"
+        ) {
+          availableAdvance -= amount;
+        }
+      }
     }
 
-    const lastNumber = counterSnap.exists()
-      ? Number(counterSnap.data().lastNumber || 0)
+    availableAdvance = roundMoney(
+      Math.max(0, availableAdvance)
+    );
+
+    if (result.advanceAmount > availableAdvance) {
+      throw new Error(
+        `उपलब्ध Advance ₹${availableAdvance.toFixed(2)} है।`
+      );
+    }
+
+    const lastNumber = counterSnapshot.exists()
+      ? Number(counterSnapshot.data().lastNumber || 0)
       : 0;
 
     const nextNumber = lastNumber + 1;
@@ -221,34 +290,14 @@ export async function saveSale(
     const invoiceNumber =
       `VR-${year}-${String(nextNumber).padStart(4, "0")}`;
 
-    let currentAdvance = 0;
-
-    if (advanceSnap) {
-      advanceSnap.docs.forEach((entry) => {
-        const data = entry.data();
-        const amount = Number(data.amount || 0);
-
-        if (data.type === "deposit") currentAdvance += amount;
-        if (data.type === "refund") currentAdvance -= amount;
-        if (data.type === "adjustment") currentAdvance -= amount;
-      });
-    }
-
-    currentAdvance = moneyRound(Math.max(0, currentAdvance));
-
-    if (sale.advanceAmount > currentAdvance) {
-      throw new Error(
-        `उपलब्ध एडवांस ₹${currentAdvance.toFixed(2)} है।`
-      );
-    }
-
-    const saleItems = sale.items.map((item) => ({
+    const savedItems = sale.items.map((item) => ({
       itemId: item.itemId,
       itemName: item.name,
+      name: item.name,
       quantity: item.quantity,
       unit: item.unit || "",
       rate: item.rate,
-      total: moneyRound(item.quantity * item.rate),
+      total: roundMoney(item.quantity * item.rate),
     }));
 
     const saleData = {
@@ -256,13 +305,16 @@ export async function saveSale(
       customerId: sale.customerId || "",
       customerName: sale.customerName.trim(),
       customerMobile: sale.customerMobile || "",
-      items: saleItems,
+      items: savedItems,
       subtotal: result.subtotal,
       discount: result.discount,
       total: result.finalTotal,
       cashAmount: result.cashAmount,
       upiAmount: result.upiAmount,
       advanceUsed: result.advanceAmount,
+      advanceAmount: result.advanceAmount,
+      paidAmount: result.paidAmount,
+      balance: result.balance,
       paymentMode: sale.paymentMode,
       createdBy: user.uid,
       createdAt: now,
@@ -278,14 +330,15 @@ export async function saveSale(
       updatedBy: user.uid,
     });
 
-    if (adjustmentRef && sale.customerId) {
+    if (adjustmentRef && result.advanceAmount > 0) {
       transaction.set(adjustmentRef, {
         customerId: sale.customerId,
-        customerName: sale.customerName,
+        customerName: sale.customerName.trim(),
         type: "adjustment",
         amount: result.advanceAmount,
         paymentMode: "cash",
         saleId: saleRef.id,
+        invoiceNumber,
         note: `Invoice ${invoiceNumber} में Advance समायोजन`,
         date: now,
         createdAt: now,
@@ -297,6 +350,7 @@ export async function saveSale(
     return {
       saleId: saleRef.id,
       invoiceNumber,
+      createdAt: now,
     };
   });
 }
