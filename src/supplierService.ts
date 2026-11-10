@@ -210,4 +210,4 @@ export async function recordSupplierPayment(input: {
   });
 
   return paymentRef.id;
-      }
+}
