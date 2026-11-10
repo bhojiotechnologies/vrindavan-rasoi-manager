@@ -1,10 +1,17 @@
+
 import { createPortal } from "react-dom";
-import type { SaleDraft, SaleDraftResult } from "./saleService";
+import { useState } from "react";
+
+import type {
+  SaleDraft,
+  SaleDraftResult,
+} from "./saleService";
 
 interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
   onClose: () => void;
+  onSave: () => Promise<void>;
 }
 
 function money(value: number): string {
@@ -15,11 +22,49 @@ export default function InvoicePreview({
   sale,
   result,
   onClose,
+  onSave,
 }: InvoicePreviewProps) {
-  const date = new Date().toLocaleString("en-IN", {
+  const [saving, setSaving] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [savedDate, setSavedDate] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const date = new Date(
+    savedDate || Date.now()
+  ).toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
   });
+
+  async function handleSave() {
+    if (saving || invoiceNumber) return;
+
+    try {
+      setSaving(true);
+      setError("");
+
+      // onSave सफल होने पर Parent द्वारा सेव किए गए
+      // Invoice Number की सूचना वापस प्राप्त होगी।
+      const saved = await onSave();
+
+      if (typeof saved === "string" && saved.trim()) {
+        setInvoiceNumber(saved);
+        setSavedDate(Date.now());
+      } else {
+        setError(
+          "बिल सेव की प्रक्रिया पूरी हुई, लेकिन Invoice Number प्राप्त नहीं हुआ।"
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "बिल सेव नहीं हो पाया।"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function printInvoice() {
     window.print();
@@ -96,7 +141,7 @@ export default function InvoicePreview({
         }
 
         .invoice-totals {
-          max-width: 300px;
+          max-width: 320px;
           margin: 18px 0 0 auto;
         }
 
@@ -125,6 +170,7 @@ export default function InvoicePreview({
         .invoice-actions {
           display: flex;
           justify-content: center;
+          flex-wrap: wrap;
           gap: 10px;
           margin: 16px auto;
           max-width: 700px;
@@ -140,9 +186,23 @@ export default function InvoicePreview({
           cursor: pointer;
         }
 
+        .invoice-actions button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
         .invoice-actions .secondary {
           background: #e8dcc8;
           color: #49321f;
+        }
+
+        .invoice-error {
+          max-width: 700px;
+          margin: 12px auto;
+          padding: 12px;
+          border-radius: 7px;
+          background: #ffebee;
+          color: #a32020;
         }
 
         @media print {
@@ -191,7 +251,8 @@ export default function InvoicePreview({
             background: white !important;
           }
 
-          .invoice-actions {
+          .invoice-actions,
+          .invoice-error {
             display: none !important;
           }
 
@@ -221,9 +282,7 @@ export default function InvoicePreview({
           <p>जहाँ स्वाद और सुकून साथ मिलते हैं</p>
           <p>बिलंदा, फतेहपुर, उत्तर प्रदेश</p>
           <p>मोबाइल: 7007418571</p>
-          <p>
-            <strong>शुद्ध सात्विक भोजन</strong>
-          </p>
+          <p><strong>शुद्ध सात्विक भोजन</strong></p>
         </header>
 
         <div className="invoice-meta">
@@ -231,13 +290,19 @@ export default function InvoicePreview({
             <strong>ग्राहक:</strong> {sale.customerName}
           </div>
 
-          {sale.customerMobile && <div><strong>मोबाइल:</strong> {sale.customerMobile}</div>}
+          {sale.customerMobile && (
+            <div>
+              <strong>मोबाइल:</strong> {sale.customerMobile}
+            </div>
+          )}
+
           <div>
             <strong>दिनांक:</strong> {date}
           </div>
 
           <div>
-            <strong>बिल:</strong> Draft Preview
+            <strong>बिल:</strong>{" "}
+            {invoiceNumber || "Draft Preview"}
           </div>
         </div>
 
@@ -302,23 +367,49 @@ export default function InvoicePreview({
             <span>कुल भुगतान</span>
             <strong>{money(result.paidAmount)}</strong>
           </div>
+
+          <div className="invoice-total-row">
+            <span>शेष राशि</span>
+            <strong>{money(result.balance)}</strong>
+          </div>
         </div>
 
         <footer className="invoice-footer">
           <strong>धन्यवाद! पुनः पधारें।</strong>
           <p>वृंदावन रसोई — आपका अपना सात्विक भोजनालय</p>
           <small>
-            यह केवल बिल का Draft Preview है, जारी Invoice नहीं।
+            {invoiceNumber
+              ? "यह वास्तविक बिक्री Invoice है।"
+              : "यह केवल Draft Preview है। बिक्री अभी सेव नहीं हुई है।"}
           </small>
         </footer>
       </div>
 
-      <div className="invoice-actions">
-        <button onClick={printInvoice}>
-          Print / Save PDF
-        </button>
+      {error && (
+        <div className="invoice-error">{error}</div>
+      )}
 
-        <button className="secondary" onClick={onClose}>
+      <div className="invoice-actions">
+        {!invoiceNumber && (
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving}
+          >
+            {saving ? "बिल सेव हो रहा है..." : "बिल सेव करें"}
+          </button>
+        )}
+
+        {invoiceNumber && (
+          <button onClick={printInvoice}>
+            Print / Save PDF
+          </button>
+        )}
+
+        <button
+          className="secondary"
+          onClick={onClose}
+          disabled={saving}
+        >
           वापस जाएँ
         </button>
       </div>
