@@ -1,3 +1,4 @@
+
 import {
   collection,
   doc,
@@ -18,6 +19,11 @@ export interface ItemData {
   unit: string;
   rate: number;
   active: boolean;
+
+  // Inventory fields
+  stock?: number;
+  lowStockLimit?: number;
+
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -29,6 +35,8 @@ function validateItem(item: {
   category: string;
   unit: string;
   rate: number;
+  stock?: number;
+  lowStockLimit?: number;
 }): void {
   if (!item.name.trim()) {
     throw new Error("Item का नाम लिखना जरूरी है।");
@@ -45,6 +53,21 @@ function validateItem(item: {
   if (!Number.isFinite(item.rate) || item.rate < 0) {
     throw new Error("Item की कीमत सही दर्ज करें।");
   }
+
+  if (
+    item.stock !== undefined &&
+    (!Number.isFinite(item.stock) || item.stock < 0)
+  ) {
+    throw new Error("Stock की मात्रा सही दर्ज करें।");
+  }
+
+  if (
+    item.lowStockLimit !== undefined &&
+    (!Number.isFinite(item.lowStockLimit) ||
+      item.lowStockLimit < 0)
+  ) {
+    throw new Error("Low Stock Limit सही दर्ज करें।");
+  }
 }
 
 // सभी Items प्राप्त करें, Active और Inactive दोनों।
@@ -56,10 +79,16 @@ export async function getAllItems(): Promise<ItemData[]> {
 
   const snapshot = await getDocs(itemsQuery);
 
-  return snapshot.docs.map((item) => ({
-    id: item.id,
-    ...(item.data() as Omit<ItemData, "id">),
-  }));
+  return snapshot.docs.map((item) => {
+    const data = item.data();
+
+    return {
+      id: item.id,
+      ...(data as Omit<ItemData, "id">),
+      stock: Number(data.stock ?? 0),
+      lowStockLimit: Number(data.lowStockLimit ?? 5),
+    };
+  });
 }
 
 // नया Item जोड़ें।
@@ -76,6 +105,10 @@ export async function addItem(
     unit: item.unit.trim(),
     rate: item.rate,
     active: true,
+
+    stock: item.stock ?? 0,
+    lowStockLimit: item.lowStockLimit ?? 5,
+
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -84,6 +117,7 @@ export async function addItem(
 }
 
 // Item की जानकारी अपडेट करें।
+// यह function मौजूदा Stock को नहीं बदलता।
 export async function updateItem(
   itemId: string,
   item: Pick<ItemData, "name" | "category" | "unit" | "rate">
