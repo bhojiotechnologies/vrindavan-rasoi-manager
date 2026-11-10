@@ -8,11 +8,14 @@ import {
   runTransaction,
   query,
   orderBy,
-  serverTimestamp,
 } from "firebase/firestore";
 
 import { db } from "./firebase";
-import { COLLECTIONS, type PaymentMode } from "./schema";
+import {
+  COLLECTIONS,
+  type PaymentMode,
+  type UserRole,
+} from "./schema";
 
 export interface SupplierRecord {
   id: string;
@@ -112,10 +115,16 @@ export async function recordSupplierPayment(input: {
   amount: number;
   paymentMode: PaymentMode;
   userId: string;
+  userName: string;
+  role: UserRole;
   note?: string;
   date?: number;
 }): Promise<string> {
-  if (!input.supplierId.trim() || !input.userId.trim()) {
+  if (
+    !input.supplierId.trim() ||
+    !input.userId.trim() ||
+    !input.userName.trim()
+  ) {
     throw new Error("Supplier या User की जानकारी उपलब्ध नहीं है।");
   }
 
@@ -199,8 +208,8 @@ export async function recordSupplierPayment(input: {
 
     transaction.set(activityRef, {
       userId: input.userId,
-      userName: input.userId,
-      role: "owner",
+      userName: input.userName,
+      role: input.role,
       action: "SUPPLIER_PAYMENT",
       module: "Supplier",
       recordId: paymentRef.id,
