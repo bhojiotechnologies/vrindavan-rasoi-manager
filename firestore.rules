@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function activeUser() {
+      return signedIn() && exists(userPath()) && get(userPath()).data.status == "active";
+    }
+    function owner() { return activeUser() && get(userPath()).data.role == "owner"; }
+    function validCustomer(data) {
+      return data.keys().hasOnly(["name", "mobile", "address", "advanceBalance", "totalPurchases", "totalPayments", "createdAt", "updatedAt", "createdBy", "status"])
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.mobile is string && data.mobile.matches('^[0-9]{10}$')
+        && data.address is string && data.address.size() <= 300
+        && data.advanceBalance == 0 && data.totalPurchases == 0 && data.totalPayments == 0
+        && data.createdBy == request.auth.uid && data.status == "active"
+        && data.createdAt is int && data.updatedAt is int;
+    }
+    function validAdvance(data) {
+      return data.keys().hasOnly(["customerId", "customerName", "type", "amount", "paymentMode", "note", "date", "createdAt", "createdBy", "status"])
+        && data.customerId is string && data.customerName is string
+        && data.type == "deposit" && data.amount is number && data.amount > 0 && data.amount <= 1000000
+        && data.paymentMode in ["cash", "upi"]
+        && data.note is string && data.note.size() <= 300
+        && data.date is int && data.createdAt is int
+        && data.createdBy == request.auth.uid && data.status == "active"
+        && exists(/databases/$(database)/documents/customers/$(data.customerId))
+        && get(/databases/$(database)/documents/customers/$(data.customerId)).data.status == "active"
+        && data.customerName == get(/databases/$(database)/documents/customers/$(data.customerId)).data.name;
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list, create, update, delete: if false;
+    }
+    match /items/{itemId} {
+      allow read: if activeUser();
+      allow create, update: if owner();
+      allow delete: if false;
+    }
+    match /customers/{customerId} {
+      allow read: if activeUser();
+      allow create: if activeUser() && validCustomer(request.resource.data);
+      allow update, delete: if false;
+    }
+    match /advanceTransactions/{transactionId} {
+      allow read: if activeUser();
+      allow create: if activeUser() && validAdvance(request.resource.data);
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
