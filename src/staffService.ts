@@ -43,14 +43,17 @@ const staffApp = getApps().some(
 
 const staffAuth = getAuth(staffApp);
 
-function makeStaffEmail(username: string) {
+// Staff ID को Firebase Login Email में बदलना
+function makeStaffEmail(username: string): string {
   return `${username.toLowerCase()}@staff.vrindavanrasoi.com`;
 }
 
-function validateUsername(username: string) {
+// Staff ID Validation
+function validateUsername(username: string): boolean {
   return /^[A-Z0-9]{3,20}$/.test(username);
 }
 
+// सभी Staff Accounts प्राप्त करना
 export async function getStaffAccounts(): Promise<StaffAccount[]> {
   if (!auth.currentUser) {
     throw new Error("Owner Login उपलब्ध नहीं है।");
@@ -58,14 +61,30 @@ export async function getStaffAccounts(): Promise<StaffAccount[]> {
 
   const snapshot = await getDocs(collection(db, "users"));
 
-  return snapshot.docs
-    .map((entry) => ({
+  const accounts: StaffAccount[] = snapshot.docs.map((entry) => {
+    const data = entry.data();
+
+    return {
       uid: entry.id,
-      ...entry.data(),
-    }))
-    .filter((entry) => entry.role === "staff") as StaffAccount[];
+      name: String(data.name ?? ""),
+      username: String(data.username ?? ""),
+      email: String(data.email ?? ""),
+      role: data.role as "staff",
+      status: data.status as "active" | "inactive",
+      createdAt: Number(data.createdAt ?? 0),
+      updatedAt:
+        typeof data.updatedAt === "number"
+          ? data.updatedAt
+          : undefined,
+    };
+  });
+
+  return accounts.filter(
+    (entry) => entry.role === "staff"
+  );
 }
 
+// नया Staff Account बनाना
 export async function createStaffAccount(input: {
   name: string;
   username: string;
@@ -86,14 +105,23 @@ export async function createStaffAccount(input: {
   }
 
   if (!validateUsername(username)) {
-    throw new Error("Staff ID में 3 से 20 अक्षर या अंक रखें।");
+    throw new Error(
+      "Staff ID में 3 से 20 अक्षर या अंक रखें।"
+    );
   }
 
   if (password.length < 6) {
-    throw new Error("Password कम से कम 6 अक्षर का होना चाहिए।");
+    throw new Error(
+      "Password कम से कम 6 अक्षर का होना चाहिए।"
+    );
   }
 
-  const usernameRef = doc(db, "staffUsernames", username);
+  const usernameRef = doc(
+    db,
+    "staffUsernames",
+    username
+  );
+
   const existing = await getDoc(usernameRef);
 
   if (existing.exists()) {
@@ -107,6 +135,7 @@ export async function createStaffAccount(input: {
   >["user"] | null = null;
 
   try {
+    // अलग Firebase Auth Instance में Staff बनाना
     const credential = await createUserWithEmailAndPassword(
       staffAuth,
       email,
@@ -116,13 +145,23 @@ export async function createStaffAccount(input: {
     createdUser = credential.user;
 
     const now = Date.now();
-    const profileRef = doc(db, "users", createdUser.uid);
 
+    const profileRef = doc(
+      db,
+      "users",
+      createdUser.uid
+    );
+
+    // Firestore में Staff Profile और Username सुरक्षित करना
     await runTransaction(db, async (transaction) => {
-      const usernameSnapshot = await transaction.get(usernameRef);
+      const usernameSnapshot = await transaction.get(
+        usernameRef
+      );
 
       if (usernameSnapshot.exists()) {
-        throw new Error("यह Staff ID पहले से मौजूद है।");
+        throw new Error(
+          "यह Staff ID पहले से मौजूद है।"
+        );
       }
 
       transaction.set(profileRef, {
@@ -145,31 +184,39 @@ export async function createStaffAccount(input: {
       });
     });
   } catch (error) {
+    // Firestore में Profile न बनने पर Auth Account हटाना
     if (createdUser) {
       try {
         await deleteUser(createdUser);
       } catch (cleanupError) {
-        console.error("Staff Auth cleanup error:", cleanupError);
+        console.error(
+          "Staff Auth cleanup error:",
+          cleanupError
+        );
       }
     }
 
     try {
       await signOut(staffAuth);
     } catch {
-      // Secondary Auth cleanup is best-effort.
+      // Secondary Auth cleanup
     }
 
     throw error;
   }
 
-  // Account बन जाने के बाद Sign Out की त्रुटि से Account डिलीट नहीं होगा।
+  // सफल Account बनने के बाद Secondary Auth से Sign Out
   try {
     await signOut(staffAuth);
   } catch (error) {
-    console.warn("Secondary Auth sign-out warning:", error);
+    console.warn(
+      "Secondary Auth sign-out warning:",
+      error
+    );
   }
 }
 
+// Staff को Active या Inactive करना
 export async function setStaffStatus(
   staffUid: string,
   status: "active" | "inactive"
@@ -180,7 +227,11 @@ export async function setStaffStatus(
     throw new Error("Owner Login उपलब्ध नहीं है।");
   }
 
-  const staffRef = doc(db, "users", staffUid);
+  const staffRef = doc(
+    db,
+    "users",
+    staffUid
+  );
 
   await updateDoc(staffRef, {
     status,
