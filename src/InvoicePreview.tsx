@@ -43,18 +43,14 @@ export default function InvoicePreview({
       setSaving(true);
       setError("");
 
-      // onSave सफल होने पर Parent द्वारा सेव किए गए
-      // Invoice Number की सूचना वापस प्राप्त होगी।
       const saved = await onSave();
 
-      if (typeof saved === "string" && saved.trim()) {
-        setInvoiceNumber(saved);
-        setSavedDate(Date.now());
-      } else {
-        setError(
-          "बिल सेव की प्रक्रिया पूरी हुई, लेकिन Invoice Number प्राप्त नहीं हुआ।"
-        );
+      if (!saved || !saved.trim()) {
+        throw new Error("Invoice Number प्राप्त नहीं हुआ।");
       }
+
+      setInvoiceNumber(saved);
+      setSavedDate(Date.now());
     } catch (err) {
       setError(
         err instanceof Error
@@ -235,12 +231,10 @@ export default function InvoicePreview({
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
-            color: #49321f !important;
             overflow: visible !important;
           }
 
           .invoice-paper {
-            display: block !important;
             width: 100% !important;
             max-width: none !important;
             margin: 0 !important;
@@ -258,11 +252,7 @@ export default function InvoicePreview({
 
           .invoice-header,
           .invoice-totals,
-          .invoice-footer {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
+          .invoice-footer,
           .invoice-table tr {
             break-inside: avoid;
             page-break-inside: avoid;
