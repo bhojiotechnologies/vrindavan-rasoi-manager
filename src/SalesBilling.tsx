@@ -397,7 +397,9 @@ export default function SalesBilling({
 
   async function handleSaveSale(): Promise<string> {
     if (!previewSale || saving) {
-      throw new Error("बिल सेव करने के लिए उपलब्ध नहीं है।");
+      throw new Error(
+        "बिल सेव करने के लिए उपलब्ध नहीं है।"
+      );
     }
 
     try {
@@ -727,7 +729,7 @@ export default function SalesBilling({
         </div>
 
         <p style={styles.note}>
-          नियम: पूरा भुगतान Cash, UPI और उपलब्ध Advance से ही
+          पूरा भुगतान Cash, UPI और उपलब्ध Advance से ही
           दर्ज होगा। Customer Credit की सुविधा नहीं है।
         </p>
       </section>
@@ -908,7 +910,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-  },
+    },
   warning: {
     color: "#80694f",
     fontSize: 12,
