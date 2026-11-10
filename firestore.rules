@@ -4,6 +4,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // =========================================
+    // USER AUTHENTICATION AND ROLES
+    // =========================================
+
     function signedIn() {
       return request.auth != null;
     }
@@ -23,44 +27,200 @@ service cloud.firestore {
         && get(userPath()).data.role == "owner";
     }
 
-    match /users/{userId} {
-      allow get: if signedIn() && request.auth.uid == userId;
-      allow list, create, update, delete: if false;
+    function staff() {
+      return activeUser()
+        && get(userPath()).data.role == "staff";
     }
 
-    match /items/{itemId} {
-      allow read: if activeUser();
-      allow create, update: if owner();
+    function validCreator() {
+      return request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == "active";
+    }
+
+    function validAmount() {
+      return request.resource.data.amount is number
+        && request.resource.data.amount > 0;
+    }
+
+    function validPaymentMode() {
+      return request.resource.data.paymentMode in ["cash", "upi"];
+    }
+
+    // =========================================
+    // USERS - OWNER AND STAFF MANAGEMENT
+    // =========================================
+
+    match /users/{userId} {
+
+      // User can read own profile.
+      // Owner can read other user profiles.
+      allow get: if (
+        signedIn()
+        && request.auth.uid == userId
+      ) || owner();
+
+      // Only Owner can list user profiles.
+      allow list: if owner();
+
+      // Owner can create STAFF accounts only.
+      // Creating another Owner account is prohibited.
+      allow create: if owner()
+        && request.resource.data.uid == userId
+        && request.resource.data.role == "staff"
+        && request.resource.data.status == "active"
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.username is string
+        && request.resource.data.email is string
+        && request.resource.data.createdAt is number
+        && request.resource.data.updatedAt is number
+        && request.resource.data.keys().hasOnly([
+          "uid",
+          "name",
+          "username",
+          "email",
+          "role",
+          "status",
+          "createdAt",
+          "createdBy",
+          "updatedAt"
+        ]);
+
+      // Owner can only activate or deactivate Staff.
+      // Staff cannot change their own role or status.
+      allow update: if owner()
+        && resource.data.role == "staff"
+        && request.resource.data.role == "staff"
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly([
+            "status",
+            "updatedAt",
+            "updatedBy"
+          ])
+        && request.resource.data.status in ["active", "inactive"]
+        && request.resource.data.updatedBy == request.auth.uid;
+
+      // User accounts cannot be deleted from the app.
       allow delete: if false;
     }
 
+    // =========================================
+    // STAFF USERNAME REGISTRY
+    // =========================================
+
+    match /staffUsernames/{username} {
+
+      // Only Owner can check Staff ID availability.
+      allow get: if owner();
+
+      allow list: if false;
+
+      // Only Owner can register a new Staff ID.
+      allow create: if owner()
+        && request.resource.data.username == username
+        && request.resource.data.uid is string
+        && request.resource.data.email is string
+        && request.resource.data.createdAt is number;
+
+      // Existing Staff IDs cannot be overwritten or deleted.
+      allow update, delete: if false;
+    }
+
+    // =========================================
+    // ITEMS AND INVENTORY
+    // =========================================
+
+    match /items/{itemId} {
+
+      allow read: if activeUser();
+
+      // Item create only Owner
+      allow create: if owner();
+
+      // Owner can update complete Item.
+      // Staff can only update stock and updatedAt.
+      allow update: if owner()
+        || (
+          activeUser()
+          && request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly(["stock", "updatedAt"])
+          && request.resource.data.stock is number
+          && request.resource.data.stock >= 0
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // CUSTOMERS
+    // =========================================
+
     match /customers/{customerId} {
+
       allow read: if activeUser();
 
       allow create: if activeUser()
         && request.resource.data.name is string
         && request.resource.data.mobile is string
         && request.resource.data.mobile.matches('^[0-9]{10}$')
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.status == "active";
+        && validCreator();
 
-      allow update, delete: if false;
+      // Owner can edit customer details.
+      // Staff and Owner can update financial summary fields only.
+      allow update: if owner()
+        || (
+          activeUser()
+          && request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "advanceBalance",
+              "totalPurchases",
+              "totalPayments",
+              "updatedAt",
+              "updatedBy"
+            ])
+        );
+
+      allow delete: if false;
     }
 
-    match /advanceTransactions/{transactionId} {
+    // =========================================
+    // CUSTOMER PAYMENTS
+    // =========================================
+
+    match /customerPayments/{paymentId} {
+
       allow read: if activeUser();
 
       allow create: if activeUser()
         && request.resource.data.customerId is string
         && request.resource.data.customerName is string
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.status == "active"
+        && validAmount()
+        && validPaymentMode()
+        && validCreator();
+
+      allow update, delete: if false;
+    }
+
+    // =========================================
+    // CUSTOMER ADVANCE
+    // =========================================
+
+    match /advanceTransactions/{transactionId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.customerId is string
+        && request.resource.data.customerName is string
+        && validAmount()
+        && validCreator()
         && (
           (
             request.resource.data.type == "deposit"
-            && request.resource.data.paymentMode in ["cash", "upi"]
+            && validPaymentMode()
           )
           ||
           (
@@ -70,17 +230,26 @@ service cloud.firestore {
               /databases/$(database)/documents/sales/$(request.resource.data.saleId)
             )
           )
+          ||
+          (
+            request.resource.data.type == "refund"
+            && owner()
+          )
         );
 
       allow update, delete: if false;
     }
 
+    // =========================================
+    // SALES AND BILLING
+    // =========================================
+
     match /sales/{saleId} {
+
       allow read: if activeUser();
 
       allow create: if activeUser()
         && request.resource.data.invoiceNumber is string
-        && request.resource.data.customerName is string
         && request.resource.data.items is list
         && request.resource.data.items.size() > 0
         && request.resource.data.total is number
@@ -90,16 +259,266 @@ service cloud.firestore {
         && request.resource.data.advanceUsed is number
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.status == "active"
-        && request.resource.data.paymentMode in ["cash", "upi", "advance", "split"];
+        && request.resource.data.paymentMode
+          in ["cash", "upi", "advance", "split"];
 
+      // Old sales can be amended only by Owner.
       allow update: if owner();
+
       allow delete: if false;
     }
+
+    // =========================================
+    // INVOICE COUNTERS
+    // =========================================
 
     match /invoiceCounters/{counterId} {
+
       allow read, create, update: if activeUser();
+
       allow delete: if false;
     }
+
+    // =========================================
+    // SUPPLIERS
+    // =========================================
+
+    match /suppliers/{supplierId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.name is string
+        && request.resource.data.mobile is string
+        && validCreator();
+
+      // Owner can edit Supplier details.
+      // Purchase and Payment can update financial totals.
+      allow update: if owner()
+        || (
+          activeUser()
+          && request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "totalPurchases",
+              "totalPaid",
+              "outstandingBalance",
+              "updatedAt",
+              "updatedBy"
+            ])
+          && request.resource.data.totalPurchases is number
+          && request.resource.data.totalPaid is number
+          && request.resource.data.outstandingBalance is number
+          && request.resource.data.totalPurchases >= 0
+          && request.resource.data.totalPaid >= 0
+          && request.resource.data.outstandingBalance >= 0
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // PURCHASES
+    // =========================================
+
+    match /purchases/{purchaseId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.supplierId is string
+        && request.resource.data.supplierName is string
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.paidAmount is number
+        && request.resource.data.paidAmount >= 0
+        && request.resource.data.outstandingAmount is number
+        && request.resource.data.outstandingAmount >= 0
+        && validCreator();
+
+      allow update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // SUPPLIER PAYMENTS
+    // =========================================
+
+    match /supplierPayments/{paymentId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.supplierId is string
+        && request.resource.data.supplierName is string
+        && validAmount()
+        && validPaymentMode()
+        && validCreator();
+
+      allow update, delete: if false;
+    }
+
+    // =========================================
+    // EXPENSES
+    // =========================================
+
+    match /expenses/{expenseId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.title is string
+        && request.resource.data.category is string
+        && validAmount()
+        && validPaymentMode()
+        && request.resource.data.date is number
+        && validCreator();
+
+      allow update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // STOCK MOVEMENTS
+    // =========================================
+
+    match /stockMovements/{movementId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.itemId is string
+        && request.resource.data.itemName is string
+        && request.resource.data.type
+          in ["purchase", "sale", "wastage", "adjustment"]
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity > 0
+        && request.resource.data.previousStock is number
+        && request.resource.data.newStock is number
+        && request.resource.data.newStock >= 0
+        && validCreator();
+
+      allow update, delete: if owner();
+    }
+
+    // =========================================
+    // WASTAGE
+    // =========================================
+
+    match /wastage/{wastageId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.itemId is string
+        && request.resource.data.itemName is string
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity > 0
+        && request.resource.data.estimatedLoss is number
+        && request.resource.data.estimatedLoss >= 0
+        && request.resource.data.reason is string
+        && validCreator();
+
+      allow update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // CASH AND UPI TRANSACTIONS
+    // =========================================
+
+    match /cashTransactions/{transactionId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.type
+          in ["opening", "cashIn", "cashOut", "sale", "expense", "refund"]
+        && validAmount()
+        && validPaymentMode()
+        && request.resource.data.date is number
+        && validCreator()
+        && (
+          request.resource.data.type != "opening"
+          || owner()
+        );
+
+      allow update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // DAILY CASH CLOSING
+    // =========================================
+
+    match /cashClosings/{closingId} {
+
+      allow read: if activeUser();
+
+      allow create: if activeUser()
+        && request.resource.data.date is string
+        && request.resource.data.openingCash is number
+        && request.resource.data.expectedCash is number
+        && request.resource.data.actualCash is number
+        && request.resource.data.difference is number
+        && validCreator();
+
+      allow update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // ACTIVITY LOGS
+    // =========================================
+
+    match /activityLogs/{activityId} {
+
+      allow read: if owner();
+
+      allow create: if activeUser()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.userName is string
+        && request.resource.data.role
+          == get(userPath()).data.role
+        && request.resource.data.action is string
+        && request.resource.data.module is string
+        && request.resource.data.createdAt is number;
+
+      allow update, delete: if false;
+    }
+
+    // =========================================
+    // BUSINESS SETTINGS
+    // =========================================
+
+    match /settings/{settingId} {
+
+      allow read: if activeUser();
+
+      allow create, update: if owner();
+
+      allow delete: if false;
+    }
+
+    // =========================================
+    // BACKUPS
+    // =========================================
+
+    match /backups/{backupId} {
+
+      allow read, write: if owner();
+    }
+
+    // =========================================
+    // DEFAULT DENY
+    // =========================================
 
     match /{document=**} {
       allow read, write: if false;
