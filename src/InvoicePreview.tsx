@@ -98,7 +98,7 @@ export default function InvoicePreview({
   const [business, setBusiness] =
     useState<BusinessProfile>(DEFAULT_PROFILE);
 
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [saveError, setSaveError] = useState("");
