@@ -1,14 +1,12 @@
-
 import { useEffect, useState } from "react";
-
 import type { SaleDraft, SaleDraftResult } from "./saleService";
-
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
+  onSave: () => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -27,77 +25,49 @@ const DEFAULT_PROFILE: BusinessProfile = {
   phone: "7007418571",
 };
 
-function money(value: number): string {
-  return new Intl.NumberFormat("en-IN", {
+const money = (value: number) =>
+  new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
-}
 
 function amountInWords(amount: number): string {
-  const number = Math.round(amount);
-
-  if (number === 0) return "Zero Rupees Only";
-
   const ones = [
-    "",
-    "One",
-    "Two",
-    "Three",
-    "Four",
-    "Five",
-    "Six",
-    "Seven",
-    "Eight",
-    "Nine",
-    "Ten",
-    "Eleven",
-    "Twelve",
-    "Thirteen",
-    "Fourteen",
-    "Fifteen",
-    "Sixteen",
-    "Seventeen",
-    "Eighteen",
-    "Nineteen",
+    "", "One", "Two", "Three", "Four", "Five", "Six",
+    "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve",
+    "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+    "Seventeen", "Eighteen", "Nineteen",
   ];
 
   const tens = [
-    "",
-    "",
-    "Twenty",
-    "Thirty",
-    "Forty",
-    "Fifty",
-    "Sixty",
-    "Seventy",
-    "Eighty",
-    "Ninety",
+    "", "", "Twenty", "Thirty", "Forty",
+    "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
   ];
 
-  function underThousand(n: number): string {
-    let text = "";
+  function words(n: number): string {
+    let result = "";
 
     if (n >= 100) {
-      text += ones[Math.floor(n / 100)] + " Hundred ";
+      result += ones[Math.floor(n / 100)] + " Hundred ";
       n %= 100;
     }
 
     if (n >= 20) {
-      text += tens[Math.floor(n / 10)] + " ";
+      result += tens[Math.floor(n / 10)] + " ";
       n %= 10;
     }
 
-    if (n > 0) {
-      text += ones[n] + " ";
-    }
+    if (n > 0) result += ones[n] + " ";
 
-    return text.trim();
+    return result.trim();
   }
 
-  let n = number;
+  let n = Math.round(amount);
+
+  if (n === 0) return "Zero Rupees Only";
+
   const parts: string[] = [];
 
   const crore = Math.floor(n / 10000000);
@@ -109,10 +79,10 @@ function amountInWords(amount: number): string {
   const thousand = Math.floor(n / 1000);
   n %= 1000;
 
-  if (crore) parts.push(underThousand(crore) + " Crore");
-  if (lakh) parts.push(underThousand(lakh) + " Lakh");
-  if (thousand) parts.push(underThousand(thousand) + " Thousand");
-  if (n) parts.push(underThousand(n));
+  if (crore) parts.push(words(crore) + " Crore");
+  if (lakh) parts.push(words(lakh) + " Lakh");
+  if (thousand) parts.push(words(thousand) + " Thousand");
+  if (n) parts.push(words(n));
 
   return parts.join(" ") + " Rupees Only";
 }
@@ -120,34 +90,34 @@ function amountInWords(amount: number): string {
 export default function InvoicePreview({
   sale,
   result,
+  onSave,
   onClose,
 }: InvoicePreviewProps) {
   const [business, setBusiness] =
     useState<BusinessProfile>(DEFAULT_PROFILE);
 
-  const [profileLoading, setProfileLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const invoiceDate = new Date().toLocaleDateString("en-IN", {
+  const date = new Date().toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
 
-  const paidAmount = Number(result.paidAmount || 0);
-  const balance = Math.max(0, result.finalTotal - paidAmount);
+  const paid = Number(result.paidAmount || 0);
+  const balance = Math.max(0, result.finalTotal - paid);
 
   useEffect(() => {
     let mounted = true;
 
-    async function loadBusinessProfile() {
+    async function loadProfile() {
       try {
         const snapshot = await getDoc(
           doc(db, "settings", "businessProfile")
         );
 
-        if (!mounted) return;
-
-        if (snapshot.exists()) {
+        if (snapshot.exists() && mounted) {
           const data = snapshot.data();
 
           setBusiness({
@@ -170,21 +140,31 @@ export default function InvoicePreview({
           });
         }
       } catch (error) {
-        console.error("Invoice Business Profile error:", error);
+        console.error("Invoice Profile Error:", error);
       } finally {
-        if (mounted) setProfileLoading(false);
+        if (mounted) setLoading(false);
       }
     }
 
-    void loadBusinessProfile();
+    void loadProfile();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  function printInvoice() {
-    window.print();
+  async function handleSave() {
+    if (saving) return;
+
+    setSaving(true);
+
+    try {
+      await onSave();
+    } catch (error) {
+      console.error("Invoice Save Error:", error);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -192,7 +172,7 @@ export default function InvoicePreview({
       <style>{`
         .invoice-page {
           min-height: 100vh;
-          padding: 18px;
+          padding: 16px;
           background: #f3eee5;
           color: #222;
           font-family: Arial, "Noto Sans Devanagari", sans-serif;
@@ -204,7 +184,7 @@ export default function InvoicePreview({
           min-height: 1123px;
           margin: auto;
           padding: 30px;
-          background: #fff;
+          background: white;
           border: 1px solid #d6d0c5;
           box-shadow: 0 4px 18px #00000012;
         }
@@ -212,28 +192,26 @@ export default function InvoicePreview({
         .invoice-top {
           display: flex;
           align-items: center;
-          gap: 20px;
-          padding-bottom: 17px;
+          gap: 18px;
+          padding-bottom: 16px;
           border-bottom: 2px solid #222;
         }
 
         .invoice-logo {
-          width: 105px;
-          height: 105px;
+          width: 100px;
+          height: 100px;
           object-fit: contain;
           flex-shrink: 0;
         }
 
         .invoice-logo-placeholder {
-          width: 105px;
-          height: 105px;
-          border: 1px dashed #999;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 27px;
+          width: 100px;
+          height: 100px;
+          border: 1px dashed #888;
+          display: grid;
+          place-items: center;
+          font-size: 28px;
           font-weight: bold;
-          flex-shrink: 0;
         }
 
         .invoice-business {
@@ -242,13 +220,13 @@ export default function InvoicePreview({
         }
 
         .invoice-business h1 {
-          font-size: 27px;
           margin: 0 0 5px;
+          font-size: 27px;
         }
 
         .invoice-business p {
-          font-size: 12px;
           margin: 4px 0;
+          font-size: 12px;
           line-height: 1.5;
         }
 
@@ -280,7 +258,6 @@ export default function InvoicePreview({
         .invoice-info-box h3 {
           font-size: 13px;
           margin: 0 0 9px;
-          text-transform: uppercase;
         }
 
         .invoice-info-box p {
@@ -288,16 +265,19 @@ export default function InvoicePreview({
           margin: 5px 0;
         }
 
-        .invoice-meta-table {
+        .invoice-meta {
           width: 100%;
           border-collapse: collapse;
           margin-bottom: 17px;
           font-size: 12px;
         }
 
-        .invoice-meta-table td {
+        .invoice-meta td,
+        .invoice-items th,
+        .invoice-items td,
+        .invoice-totals td {
           border: 1px solid #333;
-          padding: 9px;
+          padding: 9px 6px;
         }
 
         .invoice-items {
@@ -306,34 +286,23 @@ export default function InvoicePreview({
           font-size: 11px;
         }
 
-        .invoice-items th,
-        .invoice-items td {
-          border: 1px solid #333;
-          padding: 9px 6px;
-        }
-
         .invoice-items th {
           background: #eee;
-          font-weight: bold;
           text-align: center;
         }
 
-        .invoice-items td {
-          vertical-align: middle;
-        }
-
-        .invoice-items .right {
+        .right {
           text-align: right;
         }
 
-        .invoice-items .center {
+        .center {
           text-align: center;
         }
 
         .invoice-summary {
           display: flex;
           justify-content: space-between;
-          gap: 18px;
+          gap: 16px;
           margin-top: 17px;
           align-items: flex-start;
         }
@@ -350,11 +319,6 @@ export default function InvoicePreview({
           width: 255px;
           border-collapse: collapse;
           font-size: 12px;
-        }
-
-        .invoice-totals td {
-          border: 1px solid #333;
-          padding: 8px;
         }
 
         .invoice-totals td:last-child {
@@ -389,7 +353,6 @@ export default function InvoicePreview({
         .invoice-signature {
           display: flex;
           justify-content: space-between;
-          align-items: flex-end;
           gap: 20px;
           margin-top: 65px;
           font-size: 12px;
@@ -429,32 +392,25 @@ export default function InvoicePreview({
           color: white;
         }
 
+        .invoice-actions button:disabled {
+          opacity: .6;
+          cursor: not-allowed;
+        }
+
         .invoice-actions .secondary {
           background: #e4d8c5;
           color: #49321f;
         }
 
-        .invoice-loading {
-          max-width: 794px;
-          margin: 10px auto;
-          text-align: center;
-          font-size: 12px;
-          color: #755b3b;
-        }
-
         @media (max-width: 600px) {
           .invoice-paper {
-            padding: 14px;
-          }
-
-          .invoice-top {
-            gap: 10px;
+            padding: 12px;
           }
 
           .invoice-logo,
           .invoice-logo-placeholder {
-            width: 72px;
-            height: 72px;
+            width: 70px;
+            height: 70px;
           }
 
           .invoice-business h1 {
@@ -471,7 +427,7 @@ export default function InvoicePreview({
 
           .invoice-items th,
           .invoice-items td {
-            padding: 6px 3px;
+            padding: 5px 3px;
           }
 
           .invoice-summary {
@@ -496,12 +452,10 @@ export default function InvoicePreview({
 
           .invoice-page {
             padding: 0;
-            min-height: auto;
             background: white;
           }
 
           .invoice-paper {
-            width: 100%;
             max-width: none;
             min-height: auto;
             padding: 5mm;
@@ -509,8 +463,7 @@ export default function InvoicePreview({
             box-shadow: none;
           }
 
-          .invoice-actions,
-          .invoice-loading {
+          .invoice-actions {
             display: none !important;
           }
 
@@ -524,8 +477,8 @@ export default function InvoicePreview({
         }
       `}</style>
 
-      {profileLoading && (
-        <p className="invoice-loading">
+      {loading && (
+        <p style={{ textAlign: "center" }}>
           Business Profile लोड हो रहा है...
         </p>
       )}
@@ -535,7 +488,7 @@ export default function InvoicePreview({
           {business.logoDataUrl ? (
             <img
               src={business.logoDataUrl}
-              alt="वृंदावन रसोई Logo"
+              alt="Business Logo"
               className="invoice-logo"
             />
           ) : (
@@ -553,20 +506,16 @@ export default function InvoicePreview({
           </div>
         </header>
 
-        <div className="invoice-title">
-          SALES INVOICE
-        </div>
+        <div className="invoice-title">SALES INVOICE</div>
 
         <div className="invoice-info-grid">
           <div className="invoice-info-box">
             <h3>Bill To / ग्राहक विवरण</h3>
             <p>
-              <strong>ग्राहक का नाम:</strong>{" "}
+              <strong>ग्राहक:</strong>{" "}
               {sale.customerName || "Walk-in Customer"}
             </p>
-            <p>
-              <strong>मोबाइल:</strong> उपलब्ध नहीं
-            </p>
+            <p><strong>मोबाइल:</strong> उपलब्ध नहीं</p>
           </div>
 
           <div className="invoice-info-box">
@@ -577,15 +526,15 @@ export default function InvoicePreview({
           </div>
         </div>
 
-        <table className="invoice-meta-table">
+        <table className="invoice-meta">
           <tbody>
             <tr>
               <td><strong>Invoice No.:</strong> Draft Preview</td>
-              <td><strong>Invoice Date:</strong> {invoiceDate}</td>
+              <td><strong>Invoice Date:</strong> {date}</td>
             </tr>
             <tr>
               <td><strong>Place of Supply:</strong> —</td>
-              <td><strong>Payment Status:</strong> Preview</td>
+              <td><strong>Status:</strong> Preview</td>
             </tr>
           </tbody>
         </table>
@@ -611,9 +560,9 @@ export default function InvoicePreview({
                 <td className="center">—</td>
                 <td className="right">{item.quantity}</td>
                 <td className="center">{item.unit}</td>
-                <td className="right">{item.rate.toFixed(2)}</td>
+                <td className="right">{money(item.rate)}</td>
                 <td className="right">
-                  {(item.quantity * item.rate).toFixed(2)}
+                  {money(item.quantity * item.rate)}
                 </td>
               </tr>
             ))}
@@ -627,7 +576,6 @@ export default function InvoicePreview({
             {amountInWords(result.finalTotal)}
             <br /><br />
             <strong>Note:</strong> यह Invoice Preview है।
-            वास्तविक Invoice जारी होने पर Invoice Number मिलेगा।
           </div>
 
           <table className="invoice-totals">
@@ -650,28 +598,19 @@ export default function InvoicePreview({
 
         <section className="invoice-payment">
           <h3>Payment Details / भुगतान विवरण</h3>
-
           <div className="invoice-payment-grid">
             <div>Cash: <strong>{money(result.cashAmount)}</strong></div>
             <div>UPI: <strong>{money(result.upiAmount)}</strong></div>
             <div>
-              Advance Adjusted:{" "}
-              <strong>{money(result.advanceAmount)}</strong>
+              Advance: <strong>{money(result.advanceAmount)}</strong>
             </div>
-            <div>
-              Total Paid: <strong>{money(paidAmount)}</strong>
-            </div>
-            <div>
-              Balance: <strong>{money(balance)}</strong>
-            </div>
+            <div>Total Paid: <strong>{money(paid)}</strong></div>
+            <div>Balance: <strong>{money(balance)}</strong></div>
           </div>
         </section>
 
         <div className="invoice-signature">
-          <div>
-            Customer Signature
-          </div>
-
+          <div>Customer Signature</div>
           <div>
             For {business.businessName}
             <br /><br />
@@ -687,13 +626,25 @@ export default function InvoicePreview({
       </section>
 
       <div className="invoice-actions">
-        <button type="button" onClick={printInvoice}>
+        <button
+          type="button"
+          onClick={() => window.print()}
+        >
           Print / Save PDF
         </button>
 
         <button
           type="button"
+          disabled={saving}
+          onClick={() => void handleSave()}
+        >
+          {saving ? "Invoice जारी हो रहा है..." : "Invoice जारी करें"}
+        </button>
+
+        <button
+          type="button"
           className="secondary"
+          disabled={saving}
           onClick={onClose}
         >
           वापस जाएँ
@@ -701,4 +652,4 @@ export default function InvoicePreview({
       </div>
     </main>
   );
-}
+  }
