@@ -1,3 +1,5 @@
+TypeScript
+
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -373,20 +375,23 @@ function App() {
 
     if (selectedModule === "Staff Management") {
       if (role !== "owner") return null;
-if (selectedModule === "Settings") {
-  if (role !== "owner") return null;
 
-  return (
-    <section className="module-container">
-      {backButton}
-      <BusinessProfileSettings />
-    </section>
-  );
-}
       return (
         <section className="module-container">
           {backButton}
           <StaffManagement />
+        </section>
+      );
+    }
+
+    // Settings अलग Owner-only Module है
+    if (selectedModule === "Settings") {
+      if (role !== "owner") return null;
+
+      return (
+        <section className="module-container">
+          {backButton}
+          <BusinessProfileSettings />
         </section>
       );
     }
@@ -992,7 +997,6 @@ function DashboardStyles() {
         padding: 14px;
         cursor: pointer;
       }
-
       .owner-back {
         border: 1px solid #d9c49f;
         border-radius: 10px;
