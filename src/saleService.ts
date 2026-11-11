@@ -1,7 +1,7 @@
-
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   where,
@@ -61,6 +61,22 @@ export interface SavedSaleResult {
   createdAt: number;
 }
 
+interface BusinessProfileSnapshot {
+  businessName: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  logoDataUrl: string;
+}
+
+const DEFAULT_BUSINESS_PROFILE: BusinessProfileSnapshot = {
+  businessName: "वृंदावन रसोई",
+  tagline: "जहाँ स्वाद और सुकून साथ मिलते हैं",
+  address: "बिलंदा, फतेहपुर, उत्तर प्रदेश",
+  phone: "7007418571",
+  logoDataUrl: "",
+};
+
 function roundMoney(value: number): number {
   return Number(value.toFixed(2));
 }
@@ -69,6 +85,36 @@ function validateAmount(value: number, label: string): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${label} की राशि सही नहीं है।`);
   }
+}
+
+async function getBusinessProfileSnapshot(): Promise<BusinessProfileSnapshot> {
+  const profileRef = doc(db, "settings", "businessProfile");
+  const snapshot = await getDoc(profileRef);
+
+  if (!snapshot.exists()) {
+    return { ...DEFAULT_BUSINESS_PROFILE };
+  }
+
+  const data = snapshot.data();
+
+  return {
+    businessName: String(
+      data.businessName || DEFAULT_BUSINESS_PROFILE.businessName
+    ),
+    tagline: String(
+      data.tagline || DEFAULT_BUSINESS_PROFILE.tagline
+    ),
+    address: String(
+      data.address || DEFAULT_BUSINESS_PROFILE.address
+    ),
+    phone: String(
+      data.phone || DEFAULT_BUSINESS_PROFILE.phone
+    ),
+    logoDataUrl:
+      typeof data.logoDataUrl === "string"
+        ? data.logoDataUrl
+        : "",
+  };
 }
 
 export function validateSaleDraft(
@@ -195,6 +241,9 @@ export async function saveSale(
   const year = new Date().getFullYear();
   const now = Date.now();
 
+  // Invoice जारी करने से पहले Business Profile का Snapshot।
+  const businessProfile = await getBusinessProfileSnapshot();
+
   const counterRef = doc(
     db,
     COLLECTIONS.invoiceCounters,
@@ -209,10 +258,6 @@ export async function saveSale(
     ? doc(db, COLLECTIONS.customers, sale.customerId)
     : null;
 
-  /*
-   * Firestore Transaction.get() Query स्वीकार नहीं करता।
-   * इसलिए Advance की Query Transaction के बाहर पढ़ी जाती है।
-   */
   let availableAdvance = 0;
 
   if (sale.customerId && result.advanceAmount > 0) {
@@ -258,7 +303,6 @@ export async function saveSale(
       : null;
 
   return runTransaction(db, async (transaction) => {
-    // Transaction के सभी Reads, Writes से पहले।
     const counterSnapshot = await transaction.get(counterRef);
 
     if (customerRef) {
@@ -298,16 +342,29 @@ export async function saveSale(
       customerName: sale.customerName.trim(),
       customerMobile: sale.customerMobile || "",
       items: savedItems,
+
       subtotal: result.subtotal,
       discount: result.discount,
       total: result.finalTotal,
+
       cashAmount: result.cashAmount,
       upiAmount: result.upiAmount,
       advanceUsed: result.advanceAmount,
       advanceAmount: result.advanceAmount,
+
       paidAmount: result.paidAmount,
       balance: result.balance,
       paymentMode: sale.paymentMode,
+
+      // पुराने Invoice के लिए स्थायी Business Profile Snapshot।
+      businessProfile: {
+        businessName: businessProfile.businessName,
+        tagline: businessProfile.tagline,
+        address: businessProfile.address,
+        phone: businessProfile.phone,
+        logoDataUrl: businessProfile.logoDataUrl,
+      },
+
       createdBy: user.uid,
       createdAt: now,
       status: "active",
