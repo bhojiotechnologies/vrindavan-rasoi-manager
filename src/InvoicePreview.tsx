@@ -709,7 +709,7 @@ export default function InvoicePreview({
       <div className="invoice-actions">
         <button
           type="button"
-          onClick={() => window.print()}
+          onClick={() => void printCurrentPage("Vrindavan Rasoi Invoice")}
         >
           Print / Save PDF
         </button>
