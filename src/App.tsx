@@ -21,6 +21,7 @@ import CustomerManagement from "./CustomerManagement";
 import OperationsManagement from "./OperationsManagement";
 import StaffManagement from "./StaffManagement";
 import BusinessProfileSettings from "./BusinessProfileSettings";
+import InvoiceHistory from "./InvoiceHistory";
 
 type UserProfile = {
   uid?: string;
@@ -101,6 +102,11 @@ const ownerDashboardItems: DashboardItem[] = [
     title: "Settings",
     subtitle: "ऐप की सेटिंग",
   },
+  {
+  icon: "📜",
+  title: "Invoice History",
+  subtitle: "पुराने बिल देखें और प्रिंट करें",
+},
 ];
 
 // Staff के लिए सीमित Modules
@@ -140,6 +146,11 @@ const staffDashboardItems: DashboardItem[] = [
     title: "Wastage",
     subtitle: "खराब सामान का हिसाब",
   },
+  {
+  icon: "📜",
+  title: "Invoice History",
+  subtitle: "पुराने बिल देखें और प्रिंट करें",
+},
 ];
 
 const isOperationsModule = (module: string) =>
@@ -394,6 +405,14 @@ function App() {
       );
     }
 
+    if (selectedModule === "Invoice History") {
+  return (
+    <section className="module-container">
+      {backButton}
+      <InvoiceHistory />
+    </section>
+  );
+    }
     if (selectedModule === "Sales & Billing") {
       return (
         <section className="module-container">
