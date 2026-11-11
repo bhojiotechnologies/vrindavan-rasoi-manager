@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import type { SaleDraft, SaleDraftResult } from "./saleService";
 import { doc, getDoc } from "firebase/firestore";
@@ -6,7 +7,7 @@ import { db } from "./firebase";
 interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
-  onSave: () => void | Promise<void>;
+  onSave: () => Promise<string>;
   onClose: () => void;
 }
 
@@ -35,10 +36,11 @@ const money = (value: number) =>
 
 function amountInWords(amount: number): string {
   const ones = [
-    "", "One", "Two", "Three", "Four", "Five", "Six",
-    "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve",
-    "Thirteen", "Fourteen", "Fifteen", "Sixteen",
-    "Seventeen", "Eighteen", "Nineteen",
+    "", "One", "Two", "Three", "Four", "Five",
+    "Six", "Seven", "Eight", "Nine", "Ten",
+    "Eleven", "Twelve", "Thirteen", "Fourteen",
+    "Fifteen", "Sixteen", "Seventeen", "Eighteen",
+    "Nineteen",
   ];
 
   const tens = [
@@ -47,21 +49,21 @@ function amountInWords(amount: number): string {
   ];
 
   function words(n: number): string {
-    let result = "";
+    let text = "";
 
     if (n >= 100) {
-      result += ones[Math.floor(n / 100)] + " Hundred ";
+      text += ones[Math.floor(n / 100)] + " Hundred ";
       n %= 100;
     }
 
     if (n >= 20) {
-      result += tens[Math.floor(n / 10)] + " ";
+      text += tens[Math.floor(n / 10)] + " ";
       n %= 10;
     }
 
-    if (n > 0) result += ones[n] + " ";
+    if (n > 0) text += ones[n] + " ";
 
-    return result.trim();
+    return text.trim();
   }
 
   let n = Math.round(amount);
@@ -98,6 +100,8 @@ export default function InvoicePreview({
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   const date = new Date().toLocaleDateString("en-IN", {
     day: "2-digit",
@@ -140,7 +144,7 @@ export default function InvoicePreview({
           });
         }
       } catch (error) {
-        console.error("Invoice Profile Error:", error);
+        console.error("Business Profile Error:", error);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -154,14 +158,27 @@ export default function InvoicePreview({
   }, []);
 
   async function handleSave() {
-    if (saving) return;
+    if (saving || invoiceNumber) return;
 
     setSaving(true);
+    setSaveError("");
 
     try {
-      await onSave();
+      const savedNumber = await onSave();
+
+      if (typeof savedNumber !== "string" || !savedNumber.trim()) {
+        throw new Error("Invoice Number प्राप्त नहीं हुआ।");
+      }
+
+      setInvoiceNumber(savedNumber);
     } catch (error) {
       console.error("Invoice Save Error:", error);
+
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Invoice जारी नहीं हो पाया।"
+      );
     } finally {
       setSaving(false);
     }
@@ -197,16 +214,18 @@ export default function InvoicePreview({
           border-bottom: 2px solid #222;
         }
 
-        .invoice-logo {
-          width: 100px;
-          height: 100px;
-          object-fit: contain;
-          flex-shrink: 0;
-        }
-
+        .invoice-logo,
         .invoice-logo-placeholder {
           width: 100px;
           height: 100px;
+          flex-shrink: 0;
+        }
+
+        .invoice-logo {
+          object-fit: contain;
+        }
+
+        .invoice-logo-placeholder {
           border: 1px dashed #888;
           display: grid;
           place-items: center;
@@ -265,11 +284,16 @@ export default function InvoicePreview({
           margin: 5px 0;
         }
 
-        .invoice-meta {
+        .invoice-meta,
+        .invoice-items,
+        .invoice-totals {
           width: 100%;
           border-collapse: collapse;
-          margin-bottom: 17px;
           font-size: 12px;
+        }
+
+        .invoice-meta {
+          margin-bottom: 17px;
         }
 
         .invoice-meta td,
@@ -281,8 +305,6 @@ export default function InvoicePreview({
         }
 
         .invoice-items {
-          width: 100%;
-          border-collapse: collapse;
           font-size: 11px;
         }
 
@@ -317,8 +339,6 @@ export default function InvoicePreview({
 
         .invoice-totals {
           width: 255px;
-          border-collapse: collapse;
-          font-size: 12px;
         }
 
         .invoice-totals td:last-child {
@@ -384,8 +404,8 @@ export default function InvoicePreview({
           flex: 1;
           border: 0;
           border-radius: 8px;
-          padding: 13px;
-          font-size: 14px;
+          padding: 13px 8px;
+          font-size: 13px;
           font-weight: bold;
           cursor: pointer;
           background: #79552e;
@@ -400,6 +420,25 @@ export default function InvoicePreview({
         .invoice-actions .secondary {
           background: #e4d8c5;
           color: #49321f;
+        }
+
+        .invoice-success {
+          max-width: 794px;
+          margin: 12px auto;
+          padding: 12px;
+          background: #e2f5e8;
+          color: #20723b;
+          border-radius: 8px;
+          font-weight: bold;
+        }
+
+        .invoice-error {
+          max-width: 794px;
+          margin: 12px auto;
+          padding: 12px;
+          background: #fde7e7;
+          color: #a12626;
+          border-radius: 8px;
         }
 
         @media (max-width: 600px) {
@@ -463,7 +502,9 @@ export default function InvoicePreview({
             box-shadow: none;
           }
 
-          .invoice-actions {
+          .invoice-actions,
+          .invoice-success,
+          .invoice-error {
             display: none !important;
           }
 
@@ -477,12 +518,6 @@ export default function InvoicePreview({
         }
       `}</style>
 
-      {loading && (
-        <p style={{ textAlign: "center" }}>
-          Business Profile लोड हो रहा है...
-        </p>
-      )}
-
       <section className="invoice-paper">
         <header className="invoice-top">
           {business.logoDataUrl ? (
@@ -492,9 +527,7 @@ export default function InvoicePreview({
               className="invoice-logo"
             />
           ) : (
-            <div className="invoice-logo-placeholder">
-              VR
-            </div>
+            <div className="invoice-logo-placeholder">VR</div>
           )}
 
           <div className="invoice-business">
@@ -529,12 +562,18 @@ export default function InvoicePreview({
         <table className="invoice-meta">
           <tbody>
             <tr>
-              <td><strong>Invoice No.:</strong> Draft Preview</td>
-              <td><strong>Invoice Date:</strong> {date}</td>
+              <td>
+                <strong>Invoice No.:</strong>{" "}
+                {invoiceNumber || "Draft Preview"}
+              </td>
+              <td><strong>Date:</strong> {date}</td>
             </tr>
             <tr>
               <td><strong>Place of Supply:</strong> —</td>
-              <td><strong>Status:</strong> Preview</td>
+              <td>
+                <strong>Status:</strong>{" "}
+                {invoiceNumber ? "Issued" : "Preview"}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -575,7 +614,10 @@ export default function InvoicePreview({
             <br />
             {amountInWords(result.finalTotal)}
             <br /><br />
-            <strong>Note:</strong> यह Invoice Preview है।
+            <strong>Note:</strong>{" "}
+            {invoiceNumber
+              ? "Invoice जारी कर दिया गया है।"
+              : "यह Invoice Preview है।"}
           </div>
 
           <table className="invoice-totals">
@@ -598,6 +640,7 @@ export default function InvoicePreview({
 
         <section className="invoice-payment">
           <h3>Payment Details / भुगतान विवरण</h3>
+
           <div className="invoice-payment-grid">
             <div>Cash: <strong>{money(result.cashAmount)}</strong></div>
             <div>UPI: <strong>{money(result.upiAmount)}</strong></div>
@@ -625,6 +668,18 @@ export default function InvoicePreview({
         </footer>
       </section>
 
+      {saveError && (
+        <div className="invoice-error" role="alert">
+          {saveError}
+        </div>
+      )}
+
+      {invoiceNumber && (
+        <div className="invoice-success">
+          Invoice सफलतापूर्वक जारी हुआ: {invoiceNumber}
+        </div>
+      )}
+
       <div className="invoice-actions">
         <button
           type="button"
@@ -635,10 +690,14 @@ export default function InvoicePreview({
 
         <button
           type="button"
-          disabled={saving}
+          disabled={saving || Boolean(invoiceNumber)}
           onClick={() => void handleSave()}
         >
-          {saving ? "Invoice जारी हो रहा है..." : "Invoice जारी करें"}
+          {saving
+            ? "Invoice जारी हो रहा है..."
+            : invoiceNumber
+              ? "Invoice जारी हो चुका है"
+              : "Invoice जारी करें"}
         </button>
 
         <button
@@ -652,4 +711,4 @@ export default function InvoicePreview({
       </div>
     </main>
   );
-  }
+            }
