@@ -1,3 +1,4 @@
+import { printCurrentPage } from "./printUtils";
 import { useEffect, useState } from "react";
 import type { SaleDraft, SaleDraftResult } from "./saleService";
 import { doc, getDoc } from "firebase/firestore";
