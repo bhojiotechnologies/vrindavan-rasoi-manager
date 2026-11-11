@@ -13,6 +13,7 @@
   "dependencies": {
     "@capacitor/android": "^8.0.0",
     "@capacitor/core": "^8.0.0",
+    "@capgo/capacitor-printer": "^8.1.8",
     "firebase": "^12.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
