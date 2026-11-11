@@ -20,6 +20,7 @@ import SalesBilling from "./SalesBilling";
 import CustomerManagement from "./CustomerManagement";
 import OperationsManagement from "./OperationsManagement";
 import StaffManagement from "./StaffManagement";
+import BusinessProfileSettings from "./BusinessProfileSettings";
 
 type UserProfile = {
   uid?: string;
@@ -372,7 +373,16 @@ function App() {
 
     if (selectedModule === "Staff Management") {
       if (role !== "owner") return null;
+if (selectedModule === "Settings") {
+  if (role !== "owner") return null;
 
+  return (
+    <section className="module-container">
+      {backButton}
+      <BusinessProfileSettings />
+    </section>
+  );
+}
       return (
         <section className="module-container">
           {backButton}
