@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import type { SaleDraft, SaleDraftResult } from "./saleService";
 import { doc, getDoc } from "firebase/firestore";
@@ -7,6 +6,7 @@ import { db } from "./firebase";
 interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
+  businessSnapshot?: Partial<BusinessProfile> | null;
   onSave: () => Promise<string>;
   onClose: () => void;
 }
@@ -92,6 +92,7 @@ function amountInWords(amount: number): string {
 export default function InvoicePreview({
   sale,
   result,
+  businessSnapshot,
   onSave,
   onClose,
 }: InvoicePreviewProps) {
@@ -114,6 +115,30 @@ export default function InvoicePreview({
 
   useEffect(() => {
     let mounted = true;
+
+    // Saved invoices pass their original business profile snapshot.
+    // This prevents later Settings changes from altering old invoices.
+    if (businessSnapshot) {
+      setBusiness({
+        businessName:
+          businessSnapshot.businessName || DEFAULT_PROFILE.businessName,
+        tagline:
+          businessSnapshot.tagline || DEFAULT_PROFILE.tagline,
+        address:
+          businessSnapshot.address || DEFAULT_PROFILE.address,
+        phone:
+          businessSnapshot.phone || DEFAULT_PROFILE.phone,
+        logoDataUrl:
+          typeof businessSnapshot.logoDataUrl === "string"
+            ? businessSnapshot.logoDataUrl
+            : undefined,
+      });
+      setLoading(false);
+
+      return () => {
+        mounted = false;
+      };
+    }
 
     async function loadProfile() {
       try {
@@ -155,7 +180,7 @@ export default function InvoicePreview({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [businessSnapshot]);
 
   async function handleSave() {
     if (saving || invoiceNumber) return;
@@ -711,4 +736,4 @@ export default function InvoicePreview({
       </div>
     </main>
   );
-            }
+              }
