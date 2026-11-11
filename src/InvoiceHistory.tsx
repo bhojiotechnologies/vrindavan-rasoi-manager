@@ -1,6 +1,13 @@
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+} from "firebase/firestore";
 import { db } from "./firebase";
 import { COLLECTIONS } from "./schema";
 
@@ -39,7 +46,13 @@ interface InvoiceRecord {
     logoDataUrl?: string;
   };
 }
-
+interface BusinessProfile {
+  businessName?: string;
+  tagline?: string;
+  address?: string;
+  phone?: string;
+  logoDataUrl?: string;
+}
 const money = (value: unknown) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -63,6 +76,8 @@ export default function InvoiceHistory() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [currentProfile, setCurrentProfile] =
+  useState<BusinessProfile | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -86,6 +101,24 @@ export default function InvoiceHistory() {
             } as InvoiceRecord))
             .filter((item) => item.status !== "cancelled")
         );
+        // वर्तमान Business Profile से Logo और Details प्राप्त करें
+try {
+  const profileSnapshot = await getDoc(
+    doc(db, "settings", "businessProfile")
+  );
+
+  if (active && profileSnapshot.exists()) {
+    setCurrentProfile(
+      profileSnapshot.data() as BusinessProfile
+    );
+  }
+} catch (profileError) {
+  console.error(
+    "Current Business Profile Error:",
+    profileError
+  );
+}
+        
       } catch (err) {
         console.error("Invoice History Error:", err);
 
@@ -118,7 +151,27 @@ export default function InvoiceHistory() {
     );
   }, [records, search]);
 
-  const profile = selected?.businessProfile;
+  const profile: BusinessProfile = {
+  businessName:
+    selected?.businessProfile?.businessName ||
+    currentProfile?.businessName,
+
+  tagline:
+    selected?.businessProfile?.tagline ||
+    currentProfile?.tagline,
+
+  address:
+    selected?.businessProfile?.address ||
+    currentProfile?.address,
+
+  phone:
+    selected?.businessProfile?.phone ||
+    currentProfile?.phone,
+
+  logoDataUrl:
+    selected?.businessProfile?.logoDataUrl ||
+    currentProfile?.logoDataUrl,
+};
   const items = selected?.items || [];
   const total = Number(selected?.total || 0);
 
