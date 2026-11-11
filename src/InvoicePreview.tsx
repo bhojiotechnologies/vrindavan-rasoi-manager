@@ -1,409 +1,704 @@
 
-import { createPortal } from "react-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type {
-  SaleDraft,
-  SaleDraftResult,
-} from "./saleService";
+import type { SaleDraft, SaleDraftResult } from "./saleService";
+
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "./firebase";
 
 interface InvoicePreviewProps {
   sale: SaleDraft;
   result: SaleDraftResult;
   onClose: () => void;
-  onSave: () => Promise<string>;
 }
 
+interface BusinessProfile {
+  businessName: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  logoDataUrl?: string;
+}
+
+const DEFAULT_PROFILE: BusinessProfile = {
+  businessName: "वृंदावन रसोई",
+  tagline: "जहाँ स्वाद और सुकून साथ मिलते हैं",
+  address: "बिलंदा, फतेहपुर, उत्तर प्रदेश",
+  phone: "7007418571",
+};
+
 function money(value: number): string {
-  return `₹${value.toFixed(2)}`;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function amountInWords(amount: number): string {
+  const number = Math.round(amount);
+
+  if (number === 0) return "Zero Rupees Only";
+
+  const ones = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
+
+  const tens = [
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+  ];
+
+  function underThousand(n: number): string {
+    let text = "";
+
+    if (n >= 100) {
+      text += ones[Math.floor(n / 100)] + " Hundred ";
+      n %= 100;
+    }
+
+    if (n >= 20) {
+      text += tens[Math.floor(n / 10)] + " ";
+      n %= 10;
+    }
+
+    if (n > 0) {
+      text += ones[n] + " ";
+    }
+
+    return text.trim();
+  }
+
+  let n = number;
+  const parts: string[] = [];
+
+  const crore = Math.floor(n / 10000000);
+  n %= 10000000;
+
+  const lakh = Math.floor(n / 100000);
+  n %= 100000;
+
+  const thousand = Math.floor(n / 1000);
+  n %= 1000;
+
+  if (crore) parts.push(underThousand(crore) + " Crore");
+  if (lakh) parts.push(underThousand(lakh) + " Lakh");
+  if (thousand) parts.push(underThousand(thousand) + " Thousand");
+  if (n) parts.push(underThousand(n));
+
+  return parts.join(" ") + " Rupees Only";
 }
 
 export default function InvoicePreview({
   sale,
   result,
   onClose,
-  onSave,
 }: InvoicePreviewProps) {
-  const [saving, setSaving] = useState(false);
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [savedDate, setSavedDate] = useState<number | null>(null);
-  const [error, setError] = useState("");
+  const [business, setBusiness] =
+    useState<BusinessProfile>(DEFAULT_PROFILE);
 
-  const date = new Date(
-    savedDate || Date.now()
-  ).toLocaleString("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  const invoiceDate = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
   });
 
-  async function handleSave() {
-    if (saving || invoiceNumber) return;
+  const paidAmount = Number(result.paidAmount || 0);
+  const balance = Math.max(0, result.finalTotal - paidAmount);
 
-    try {
-      setSaving(true);
-      setError("");
+  useEffect(() => {
+    let mounted = true;
 
-      const saved = await onSave();
+    async function loadBusinessProfile() {
+      try {
+        const snapshot = await getDoc(
+          doc(db, "settings", "businessProfile")
+        );
 
-      if (!saved || !saved.trim()) {
-        throw new Error("Invoice Number प्राप्त नहीं हुआ।");
+        if (!mounted) return;
+
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+
+          setBusiness({
+            businessName: String(
+              data.businessName || DEFAULT_PROFILE.businessName
+            ),
+            tagline: String(
+              data.tagline || DEFAULT_PROFILE.tagline
+            ),
+            address: String(
+              data.address || DEFAULT_PROFILE.address
+            ),
+            phone: String(
+              data.phone || DEFAULT_PROFILE.phone
+            ),
+            logoDataUrl:
+              typeof data.logoDataUrl === "string"
+                ? data.logoDataUrl
+                : undefined,
+          });
+        }
+      } catch (error) {
+        console.error("Invoice Business Profile error:", error);
+      } finally {
+        if (mounted) setProfileLoading(false);
       }
-
-      setInvoiceNumber(saved);
-      setSavedDate(Date.now());
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "बिल सेव नहीं हो पाया।"
-      );
-    } finally {
-      setSaving(false);
     }
-  }
+
+    void loadBusinessProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function printInvoice() {
     window.print();
   }
 
-  return createPortal(
-    <div className="invoice-page">
+  return (
+    <main className="invoice-page">
       <style>{`
         .invoice-page {
-          box-sizing: border-box;
-          background: #f8f1e5;
           min-height: 100vh;
-          padding: 16px;
-          color: #49321f;
-          font-family: Arial, sans-serif;
+          padding: 18px;
+          background: #f3eee5;
+          color: #222;
+          font-family: Arial, "Noto Sans Devanagari", sans-serif;
         }
 
         .invoice-paper {
-          box-sizing: border-box;
           width: 100%;
-          max-width: 700px;
+          max-width: 794px;
+          min-height: 1123px;
           margin: auto;
-          padding: 24px;
-          background: #fffdf8;
-          border: 1px solid #d8bd83;
-          border-radius: 10px;
+          padding: 30px;
+          background: #fff;
+          border: 1px solid #d6d0c5;
+          box-shadow: 0 4px 18px #00000012;
         }
 
-        .invoice-header {
-          text-align: center;
-          border-bottom: 2px solid #b58a43;
-          padding-bottom: 14px;
-          margin-bottom: 16px;
-        }
-
-        .invoice-header h1 {
-          margin: 0 0 6px;
-          color: #70451f;
-        }
-
-        .invoice-header p {
-          margin: 4px 0;
-          font-size: 13px;
-        }
-
-        .invoice-meta {
+        .invoice-top {
           display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
-          margin-bottom: 16px;
-          font-size: 14px;
+          align-items: center;
+          gap: 20px;
+          padding-bottom: 17px;
+          border-bottom: 2px solid #222;
         }
 
-        .invoice-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 13px;
+        .invoice-logo {
+          width: 105px;
+          height: 105px;
+          object-fit: contain;
+          flex-shrink: 0;
         }
 
-        .invoice-table th,
-        .invoice-table td {
-          border: 1px solid #d8c9ad;
-          padding: 9px 6px;
-          text-align: left;
+        .invoice-logo-placeholder {
+          width: 105px;
+          height: 105px;
+          border: 1px dashed #999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 27px;
+          font-weight: bold;
+          flex-shrink: 0;
         }
 
-        .invoice-table th {
-          background: #f1e4ca;
-        }
-
-        .invoice-table .number {
+        .invoice-business {
+          flex: 1;
           text-align: right;
         }
 
-        .invoice-totals {
-          max-width: 320px;
-          margin: 18px 0 0 auto;
+        .invoice-business h1 {
+          font-size: 27px;
+          margin: 0 0 5px;
         }
 
-        .invoice-total-row {
+        .invoice-business p {
+          font-size: 12px;
+          margin: 4px 0;
+          line-height: 1.5;
+        }
+
+        .invoice-title {
+          text-align: center;
+          font-size: 18px;
+          font-weight: bold;
+          letter-spacing: 2px;
+          margin: 17px 0;
+          text-decoration: underline;
+        }
+
+        .invoice-info-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          border: 1px solid #333;
+          margin-bottom: 16px;
+        }
+
+        .invoice-info-box {
+          padding: 12px;
+          min-height: 95px;
+        }
+
+        .invoice-info-box:first-child {
+          border-right: 1px solid #333;
+        }
+
+        .invoice-info-box h3 {
+          font-size: 13px;
+          margin: 0 0 9px;
+          text-transform: uppercase;
+        }
+
+        .invoice-info-box p {
+          font-size: 12px;
+          margin: 5px 0;
+        }
+
+        .invoice-meta-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 17px;
+          font-size: 12px;
+        }
+
+        .invoice-meta-table td {
+          border: 1px solid #333;
+          padding: 9px;
+        }
+
+        .invoice-items {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 11px;
+        }
+
+        .invoice-items th,
+        .invoice-items td {
+          border: 1px solid #333;
+          padding: 9px 6px;
+        }
+
+        .invoice-items th {
+          background: #eee;
+          font-weight: bold;
+          text-align: center;
+        }
+
+        .invoice-items td {
+          vertical-align: middle;
+        }
+
+        .invoice-items .right {
+          text-align: right;
+        }
+
+        .invoice-items .center {
+          text-align: center;
+        }
+
+        .invoice-summary {
           display: flex;
           justify-content: space-between;
-          gap: 10px;
-          padding: 6px 0;
-          border-bottom: 1px solid #eadfc9;
+          gap: 18px;
+          margin-top: 17px;
+          align-items: flex-start;
         }
 
-        .invoice-grand-total {
-          font-size: 19px;
+        .invoice-words {
+          flex: 1;
+          border: 1px solid #333;
+          padding: 12px;
+          font-size: 12px;
+          line-height: 1.7;
+        }
+
+        .invoice-totals {
+          width: 255px;
+          border-collapse: collapse;
+          font-size: 12px;
+        }
+
+        .invoice-totals td {
+          border: 1px solid #333;
+          padding: 8px;
+        }
+
+        .invoice-totals td:last-child {
+          text-align: right;
           font-weight: bold;
-          color: #70451f;
+        }
+
+        .invoice-totals .grand td {
+          background: #eee;
+          font-size: 14px;
+          font-weight: bold;
+        }
+
+        .invoice-payment {
+          border: 1px solid #333;
+          padding: 12px;
+          margin-top: 17px;
+          font-size: 12px;
+        }
+
+        .invoice-payment h3 {
+          margin: 0 0 9px;
+          font-size: 13px;
+        }
+
+        .invoice-payment-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 9px;
+        }
+
+        .invoice-signature {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 20px;
+          margin-top: 65px;
+          font-size: 12px;
+        }
+
+        .invoice-signature div {
+          width: 210px;
+          text-align: center;
+          border-top: 1px solid #333;
+          padding-top: 8px;
         }
 
         .invoice-footer {
           text-align: center;
-          border-top: 1px solid #d8bd83;
-          margin-top: 24px;
-          padding-top: 14px;
-          font-size: 13px;
+          border-top: 1px solid #333;
+          margin-top: 35px;
+          padding-top: 13px;
+          font-size: 12px;
         }
 
         .invoice-actions {
-          display: flex;
-          justify-content: center;
-          flex-wrap: wrap;
-          gap: 10px;
+          max-width: 794px;
           margin: 16px auto;
-          max-width: 700px;
+          display: flex;
+          gap: 10px;
         }
 
         .invoice-actions button {
+          flex: 1;
           border: 0;
-          border-radius: 7px;
-          padding: 12px 18px;
+          border-radius: 8px;
+          padding: 13px;
+          font-size: 14px;
           font-weight: bold;
-          background: #805326;
-          color: white;
           cursor: pointer;
-        }
-
-        .invoice-actions button:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
+          background: #79552e;
+          color: white;
         }
 
         .invoice-actions .secondary {
-          background: #e8dcc8;
+          background: #e4d8c5;
           color: #49321f;
         }
 
-        .invoice-error {
-          max-width: 700px;
-          margin: 12px auto;
-          padding: 12px;
-          border-radius: 7px;
-          background: #ffebee;
-          color: #a32020;
+        .invoice-loading {
+          max-width: 794px;
+          margin: 10px auto;
+          text-align: center;
+          font-size: 12px;
+          color: #755b3b;
+        }
+
+        @media (max-width: 600px) {
+          .invoice-paper {
+            padding: 14px;
+          }
+
+          .invoice-top {
+            gap: 10px;
+          }
+
+          .invoice-logo,
+          .invoice-logo-placeholder {
+            width: 72px;
+            height: 72px;
+          }
+
+          .invoice-business h1 {
+            font-size: 19px;
+          }
+
+          .invoice-business p {
+            font-size: 10px;
+          }
+
+          .invoice-items {
+            font-size: 9px;
+          }
+
+          .invoice-items th,
+          .invoice-items td {
+            padding: 6px 3px;
+          }
+
+          .invoice-summary {
+            flex-direction: column;
+          }
+
+          .invoice-totals {
+            width: 100%;
+          }
         }
 
         @media print {
           @page {
             size: A4 portrait;
-            margin: 10mm;
+            margin: 8mm;
           }
 
-          html,
           body {
-            width: auto !important;
-            height: auto !important;
-            min-height: 0 !important;
             margin: 0 !important;
-            padding: 0 !important;
             background: white !important;
-            overflow: visible !important;
           }
 
-          body > *:not(.invoice-page) {
-            display: none !important;
-          }
-
-          body > .invoice-page {
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            min-height: 0 !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            overflow: visible !important;
+          .invoice-page {
+            padding: 0;
+            min-height: auto;
+            background: white;
           }
 
           .invoice-paper {
-            width: 100% !important;
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 5mm !important;
-            border: none !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            background: white !important;
+            width: 100%;
+            max-width: none;
+            min-height: auto;
+            padding: 5mm;
+            border: 0;
+            box-shadow: none;
           }
 
           .invoice-actions,
-          .invoice-error {
+          .invoice-loading {
             display: none !important;
           }
 
-          .invoice-header,
-          .invoice-totals,
-          .invoice-footer,
-          .invoice-table tr {
+          .invoice-items tr,
+          .invoice-info-grid,
+          .invoice-summary,
+          .invoice-payment,
+          .invoice-signature {
             break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .invoice-table th {
-            background: #f1e4ca !important;
-            print-color-adjust: exact;
-            -webkit-print-color-adjust: exact;
           }
         }
       `}</style>
 
-      <div className="invoice-paper">
-        <header className="invoice-header">
-          <h1>वृंदावन रसोई</h1>
-          <p>जहाँ स्वाद और सुकून साथ मिलते हैं</p>
-          <p>बिलंदा, फतेहपुर, उत्तर प्रदेश</p>
-          <p>मोबाइल: 7007418571</p>
-          <p><strong>शुद्ध सात्विक भोजन</strong></p>
-        </header>
+      {profileLoading && (
+        <p className="invoice-loading">
+          Business Profile लोड हो रहा है...
+        </p>
+      )}
 
-        <div className="invoice-meta">
-          <div>
-            <strong>ग्राहक:</strong> {sale.customerName}
-          </div>
-
-          {sale.customerMobile && (
-            <div>
-              <strong>मोबाइल:</strong> {sale.customerMobile}
+      <section className="invoice-paper">
+        <header className="invoice-top">
+          {business.logoDataUrl ? (
+            <img
+              src={business.logoDataUrl}
+              alt="वृंदावन रसोई Logo"
+              className="invoice-logo"
+            />
+          ) : (
+            <div className="invoice-logo-placeholder">
+              VR
             </div>
           )}
 
-          <div>
-            <strong>दिनांक:</strong> {date}
+          <div className="invoice-business">
+            <h1>{business.businessName}</h1>
+            <p>{business.tagline}</p>
+            <p>{business.address}</p>
+            <p>मोबाइल: {business.phone}</p>
+            <p><strong>शुद्ध सात्विक भोजन</strong></p>
+          </div>
+        </header>
+
+        <div className="invoice-title">
+          SALES INVOICE
+        </div>
+
+        <div className="invoice-info-grid">
+          <div className="invoice-info-box">
+            <h3>Bill To / ग्राहक विवरण</h3>
+            <p>
+              <strong>ग्राहक का नाम:</strong>{" "}
+              {sale.customerName || "Walk-in Customer"}
+            </p>
+            <p>
+              <strong>मोबाइल:</strong> उपलब्ध नहीं
+            </p>
           </div>
 
-          <div>
-            <strong>बिल:</strong>{" "}
-            {invoiceNumber || "Draft Preview"}
+          <div className="invoice-info-box">
+            <h3>Bill From / विक्रेता</h3>
+            <p><strong>{business.businessName}</strong></p>
+            <p>{business.address}</p>
+            <p>मोबाइल: {business.phone}</p>
           </div>
         </div>
 
-        <table className="invoice-table">
+        <table className="invoice-meta-table">
+          <tbody>
+            <tr>
+              <td><strong>Invoice No.:</strong> Draft Preview</td>
+              <td><strong>Invoice Date:</strong> {invoiceDate}</td>
+            </tr>
+            <tr>
+              <td><strong>Place of Supply:</strong> —</td>
+              <td><strong>Payment Status:</strong> Preview</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table className="invoice-items">
           <thead>
             <tr>
               <th>क्र.</th>
-              <th>विवरण</th>
-              <th className="number">मात्रा</th>
-              <th className="number">दर</th>
-              <th className="number">राशि</th>
+              <th>Item Description</th>
+              <th>HSN/SAC</th>
+              <th>Qty</th>
+              <th>Unit</th>
+              <th>Rate (₹)</th>
+              <th>Amount (₹)</th>
             </tr>
           </thead>
 
           <tbody>
             {sale.items.map((item, index) => (
               <tr key={`${item.itemId}-${index}`}>
-                <td>{index + 1}</td>
+                <td className="center">{index + 1}</td>
                 <td>{item.name}</td>
-                <td className="number">{item.quantity}</td>
-                <td className="number">{money(item.rate)}</td>
-                <td className="number">
-                  {money(item.quantity * item.rate)}
+                <td className="center">—</td>
+                <td className="right">{item.quantity}</td>
+                <td className="center">{item.unit}</td>
+                <td className="right">{item.rate.toFixed(2)}</td>
+                <td className="right">
+                  {(item.quantity * item.rate).toFixed(2)}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="invoice-totals">
-          <div className="invoice-total-row">
-            <span>कुल राशि</span>
-            <strong>{money(result.subtotal)}</strong>
+        <div className="invoice-summary">
+          <div className="invoice-words">
+            <strong>Amount in Words:</strong>
+            <br />
+            {amountInWords(result.finalTotal)}
+            <br /><br />
+            <strong>Note:</strong> यह Invoice Preview है।
+            वास्तविक Invoice जारी होने पर Invoice Number मिलेगा।
           </div>
 
-          <div className="invoice-total-row">
-            <span>Discount</span>
-            <strong>{money(result.discount)}</strong>
+          <table className="invoice-totals">
+            <tbody>
+              <tr>
+                <td>Subtotal</td>
+                <td>{money(result.subtotal)}</td>
+              </tr>
+              <tr>
+                <td>Discount</td>
+                <td>{money(result.discount)}</td>
+              </tr>
+              <tr className="grand">
+                <td>Grand Total</td>
+                <td>{money(result.finalTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <section className="invoice-payment">
+          <h3>Payment Details / भुगतान विवरण</h3>
+
+          <div className="invoice-payment-grid">
+            <div>Cash: <strong>{money(result.cashAmount)}</strong></div>
+            <div>UPI: <strong>{money(result.upiAmount)}</strong></div>
+            <div>
+              Advance Adjusted:{" "}
+              <strong>{money(result.advanceAmount)}</strong>
+            </div>
+            <div>
+              Total Paid: <strong>{money(paidAmount)}</strong>
+            </div>
+            <div>
+              Balance: <strong>{money(balance)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <div className="invoice-signature">
+          <div>
+            Customer Signature
           </div>
 
-          <div className="invoice-total-row invoice-grand-total">
-            <span>देय राशि</span>
-            <span>{money(result.finalTotal)}</span>
-          </div>
-
-          <div className="invoice-total-row">
-            <span>Cash</span>
-            <strong>{money(result.cashAmount)}</strong>
-          </div>
-
-          <div className="invoice-total-row">
-            <span>UPI</span>
-            <strong>{money(result.upiAmount)}</strong>
-          </div>
-
-          <div className="invoice-total-row">
-            <span>Advance समायोजन</span>
-            <strong>{money(result.advanceAmount)}</strong>
-          </div>
-
-          <div className="invoice-total-row">
-            <span>कुल भुगतान</span>
-            <strong>{money(result.paidAmount)}</strong>
-          </div>
-
-          <div className="invoice-total-row">
-            <span>शेष राशि</span>
-            <strong>{money(result.balance)}</strong>
+          <div>
+            For {business.businessName}
+            <br /><br />
+            Authorized Signatory
           </div>
         </div>
 
         <footer className="invoice-footer">
           <strong>धन्यवाद! पुनः पधारें।</strong>
-          <p>वृंदावन रसोई — आपका अपना सात्विक भोजनालय</p>
-          <small>
-            {invoiceNumber
-              ? "यह वास्तविक बिक्री Invoice है।"
-              : "यह केवल Draft Preview है। बिक्री अभी सेव नहीं हुई है।"}
-          </small>
+          <p>{business.businessName} — आपका अपना सात्विक भोजनालय</p>
+          <p>{business.tagline}</p>
         </footer>
-      </div>
-
-      {error && (
-        <div className="invoice-error">{error}</div>
-      )}
+      </section>
 
       <div className="invoice-actions">
-        {!invoiceNumber && (
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving}
-          >
-            {saving ? "बिल सेव हो रहा है..." : "बिल सेव करें"}
-          </button>
-        )}
-
-        {invoiceNumber && (
-          <button onClick={printInvoice}>
-            Print / Save PDF
-          </button>
-        )}
+        <button type="button" onClick={printInvoice}>
+          Print / Save PDF
+        </button>
 
         <button
+          type="button"
           className="secondary"
           onClick={onClose}
-          disabled={saving}
         >
           वापस जाएँ
         </button>
       </div>
-    </div>,
-    document.body
+    </main>
   );
 }
