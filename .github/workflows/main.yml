@@ -1,4 +1,5 @@
-name: Build and Deploy Vrindavan Rasoi
+
+name: Build Website and Android APK
 
 on:
   push:
@@ -10,7 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  build_and_deploy:
+
+  web_deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
@@ -35,4 +37,50 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           channelId: live
           projectId: vrindavan-rasoi
+
+  android_apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build React application
+        run: npm run build
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Generate app icon
+        run: npx --yes @capacitor/assets generate --android --iconBackgroundColor '#063d2e' --splashBackgroundColor '#063d2e'
+
+      - name: Sync Android project
+        run: npx cap sync android
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vrindavan-Rasoi-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           
