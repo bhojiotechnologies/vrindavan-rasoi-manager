@@ -1,4 +1,4 @@
-
+import { printCurrentPage } from "./printUtils";
 import { useEffect, useMemo, useState } from "react";
 import {
   collection,
@@ -678,7 +678,7 @@ try {
             <button
               className="ih-btn"
               type="button"
-              onClick={() => window.print()}
+              onClick={() => void printCurrentPage("Vrindavan Rasoi Invoice")}
             >
               Print / Save PDF
             </button>
