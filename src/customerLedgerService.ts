@@ -110,4 +110,4 @@ export async function recordCustomerPayment(input: {
     note: input.note?.trim() || "उधार खाते में भुगतान", date: toDateTime(input.date ?? now),
     createdAt: now, createdBy: user.uid, status: "active",
   });
-                                                 }
+}
