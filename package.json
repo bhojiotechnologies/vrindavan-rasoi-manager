@@ -11,6 +11,7 @@
     "cap:sync": "cap sync android"
   },
   "dependencies": {
+    "@capacitor/app": "^8.0.0",
     "@capacitor/android": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capgo/capacitor-printer": "^8.1.8",
