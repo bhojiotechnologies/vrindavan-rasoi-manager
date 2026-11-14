@@ -260,7 +260,15 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.status == "active"
         && request.resource.data.paymentMode
-          in ["cash", "upi", "advance", "split"];
+          in ["cash", "upi", "advance", "split", "credit"]
+        && (!("balance" in request.resource.data)
+          || (request.resource.data.balance is number && request.resource.data.balance >= 0))
+        && (! ("paidAmount" in request.resource.data)
+          || (request.resource.data.paidAmount is number && request.resource.data.paidAmount >= 0))
+        && (!("balance" in request.resource.data)
+          || request.resource.data.balance == 0
+          || request.resource.data.customerId is string
+             && request.resource.data.customerId.size() > 0);
 
       // Old sales can be amended only by Owner.
       allow update: if owner();
