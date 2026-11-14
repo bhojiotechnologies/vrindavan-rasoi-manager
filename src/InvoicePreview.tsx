@@ -504,11 +504,69 @@ export default function InvoicePreview({
           }
         }
 
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 8mm;
-          }
+        
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .invoice-page,
+  .invoice-page * {
+    visibility: visible !important;
+  }
+
+  .invoice-page {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    z-index: 999999 !important;
+  }
+
+  .invoice-paper {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 5mm !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+
+  .invoice-actions,
+  .invoice-success,
+  .invoice-error {
+    display: none !important;
+  }
+
+  .invoice-items tr,
+  .invoice-info-grid,
+  .invoice-summary,
+  .invoice-payment,
+  .invoice-signature {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
 
           body {
             margin: 0 !important;
