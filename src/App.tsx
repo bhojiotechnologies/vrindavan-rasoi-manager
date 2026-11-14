@@ -1,3 +1,4 @@
+import { App as CapacitorApp } from "@capacitor/app";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -181,6 +182,57 @@ function App() {
   const [selectedModule, setSelectedModule] = useState("");
 
   // Authentication और Live User Profile
+  
+  // Android Hardware Back Button Handler
+  useEffect(() => {
+    let listenerHandle:
+      | { remove: () => Promise<void> }
+      | undefined;
+
+    let disposed = false;
+
+    const registerBackButton = async () => {
+      try {
+        const handle = await CapacitorApp.addListener(
+          "backButton",
+          () => {
+            // Module के अंदर हैं तो Dashboard पर लौटें
+            if (selectedModule) {
+              setSelectedModule("");
+              return;
+            }
+
+            // Dashboard पर हैं तो Exit Confirmation
+            const confirmExit = window.confirm(
+              "क्या आप वृंदावन रसोई ऐप बंद करना चाहते हैं?"
+            );
+
+            if (confirmExit) {
+              void CapacitorApp.exitApp();
+            }
+          }
+        );
+
+        if (disposed) {
+          await handle.remove();
+        } else {
+          listenerHandle = handle;
+        }
+      } catch (error) {
+        console.error("Back Button Error:", error);
+      }
+    };
+
+    void registerBackButton();
+
+    return () => {
+      disposed = true;
+
+      if (listenerHandle) {
+        void listenerHandle.remove();
+      }
+    };
+  }, [selectedModule]);
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
