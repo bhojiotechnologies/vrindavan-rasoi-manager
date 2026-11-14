@@ -205,6 +205,24 @@ service cloud.firestore {
     }
 
     // =========================================
+    // CUSTOMER LEDGER ENTRIES (UDHAAR PURCHASES)
+    // =========================================
+
+    match /customerLedgerEntries/{entryId} {
+      allow read: if activeUser();
+      allow create: if activeUser()
+        && request.resource.data.customerId is string
+        && request.resource.data.customerName is string
+        && request.resource.data.date is number
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.items is list
+        && validCreator();
+      // Ledger entries are append-only to preserve the account history.
+      allow update, delete: if false;
+    }
+
+    // =========================================
     // CUSTOMER ADVANCE
     // =========================================
 
@@ -260,15 +278,7 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.status == "active"
         && request.resource.data.paymentMode
-          in ["cash", "upi", "advance", "split", "credit"]
-        && (!("balance" in request.resource.data)
-          || (request.resource.data.balance is number && request.resource.data.balance >= 0))
-        && (! ("paidAmount" in request.resource.data)
-          || (request.resource.data.paidAmount is number && request.resource.data.paidAmount >= 0))
-        && (!("balance" in request.resource.data)
-          || request.resource.data.balance == 0
-          || request.resource.data.customerId is string
-             && request.resource.data.customerId.size() > 0);
+          in ["cash", "upi", "advance", "split"];
 
       // Old sales can be amended only by Owner.
       allow update: if owner();
